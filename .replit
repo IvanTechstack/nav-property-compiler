@@ -24,13 +24,13 @@ args = "NAV Property Compiler"
 name = "NAV Property Compiler"
 author = "agent"
 
-[workflows.workflow.metadata]
-outputType = "webview"
-
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "streamlit run NAV-Property-Compiler/src/nav_property_compiler/main.py --server.port 8099 --server.address 0.0.0.0 --server.headless true"
-waitForPort = 8099
+args = "streamlit run NAV-Property-Compiler/src/nav_property_compiler/main.py --server.port 8000 --server.address 0.0.0.0 --server.headless true"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -39,6 +39,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
 
 [[ports]]
 localPort = 8080
