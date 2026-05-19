@@ -9,28 +9,6 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "NAV Property Compiler"
-
-[[workflows.workflow]]
-name = "NAV Property Compiler"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "streamlit run NAV-Property-Compiler/src/nav_property_compiler/main.py --server.port 8000 --server.address 0.0.0.0 --server.headless true"
-waitForPort = 8000
-
-[workflows.workflow.metadata]
-outputType = "webview"
 
 [agent]
 stack = "PNPM_WORKSPACE"
