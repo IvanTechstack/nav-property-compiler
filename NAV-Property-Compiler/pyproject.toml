@@ -7,7 +7,10 @@ name = "nav-property-compiler"
 version = "0.1.0"
 description = ""
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "streamlit",
+    "pillow",
+    "boto3"]
 
 [project.optional-dependencies]
 dev = [
