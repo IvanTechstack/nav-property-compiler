@@ -195,6 +195,29 @@ def _is_image(key: str) -> bool:
     return key.lower().rsplit(".", 1)[-1] in SUPPORTED_UPLOAD_TYPES
 
 
+def _thumbnail_b64(key: str, max_w: int = 400) -> str | None:
+    """
+    Download image from R2, resize to thumbnail, return as base64 JPEG string.
+    Pure PIL — no numpy, no CORS dependency.
+    """
+    import base64
+    try:
+        raw = download_object(key)
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+        elif img.mode == "RGBA":
+            img = img.convert("RGB")
+        w, h = img.size
+        if w > max_w:
+            img = img.resize((max_w, int(h * max_w / w)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=72, optimize=True)
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return None
+
+
 def _inject_css() -> None:
     st.markdown(f"""
 <style>
@@ -210,9 +233,19 @@ def _inject_css() -> None:
         background-color: #7a0000 !important;
         border-color: #7a0000 !important;
     }}
-    /* Sidebar accent line */
+    /* Sidebar: white background, crimson right border */
     section[data-testid="stSidebar"] {{
+        background-color: #ffffff !important;
         border-right: 3px solid {CRIMSON};
+    }}
+    section[data-testid="stSidebar"] > div {{
+        background-color: #ffffff !important;
+    }}
+    /* Gray divider between branding and nav */
+    .sidebar-divider {{
+        border: none;
+        border-top: 1px solid #d9d9d9;
+        margin: 0.75rem 0 1rem 0;
     }}
     /* Column card-style separators */
     .upload-col {{
@@ -333,12 +366,24 @@ def page_browse() -> None:
             cols = st.columns(cols_per_row)
             for col, key in zip(cols, image_keys[row_start: row_start + cols_per_row]):
                 with col:
-                    try:
-                        # Short-lived presigned URL → browser fetches directly from R2
-                        thumb = presigned_url(key, expires_in=THUMBNAIL_EXPIRY)
-                        st.image(thumb, caption=key.split("/")[-1], use_container_width=True)
-                    except Exception:
-                        st.warning(f"Preview unavailable: {key.split('/')[-1]}")
+                    # Server-side thumbnail: PIL resize → base64 HTML img.
+                    # Bypasses numpy C-extensions and R2 CORS restrictions entirely.
+                    b64 = _thumbnail_b64(key)
+                    filename = key.split("/")[-1]
+                    if b64:
+                        st.markdown(
+                            f"<img src='data:image/jpeg;base64,{b64}' "
+                            f"style='width:100%;border-radius:6px;display:block;'>",
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(filename)
+                    else:
+                        st.markdown(
+                            f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;"
+                            f"text-align:center;color:#999;font-size:0.8rem'>"
+                            f"⚠ {filename}</div>",
+                            unsafe_allow_html=True,
+                        )
 
                     with st.expander("Actions"):
                         meta = next((o for o in objects if o["Key"] == key), {})
@@ -466,10 +511,15 @@ def main() -> None:
         )
 
     st.sidebar.markdown(
-        f"<h2 style='color:{CRIMSON};margin-top:0.25rem;text-align:center'>{APP_NAME}</h2>",
+        f"<h2 style='color:{CRIMSON};margin-top:0.25rem;text-align:center;font-size:1.15rem'>"
+        f"{APP_NAME}</h2>",
         unsafe_allow_html=True,
     )
-    st.sidebar.markdown("---")
+    # Soft gray divider — branding above, navigation below
+    st.sidebar.markdown(
+        "<hr class='sidebar-divider'>",
+        unsafe_allow_html=True,
+    )
 
     page = st.sidebar.radio(
         "Navigate",
