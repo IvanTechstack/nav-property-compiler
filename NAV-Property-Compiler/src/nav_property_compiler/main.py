@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import os
 from dataclasses import dataclass
-from typing import Optional
 
 import boto3
 import streamlit as st
@@ -18,9 +17,12 @@ from PIL import Image, ImageOps
 # ---------------------------------------------------------------------------
 
 BUCKET_NAME = "nav-property-media"
-MAX_DISPLAY_WIDTH = 800          # px — max width for previewing images in-app
-WEB_MAX_DIMENSION = 2048         # px — longest side cap for optimised output
+STANDARD_MAX_HEIGHT = 800        # px — standard upload height cap
+BANNER_WIDTH = 1920              # px — featured banner exact width
+BANNER_HEIGHT = 810              # px — featured banner exact height
 DEFAULT_QUALITY = 82             # WebP quality (1-100)
+THUMBNAIL_EXPIRY = 300           # seconds — presigned URL lifetime for thumbnails
+DOWNLOAD_EXPIRY = 3600           # seconds — presigned URL lifetime for downloads
 SUPPORTED_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp", "tiff", "bmp"]
 SUPPORTED_MIME = {
     "jpg": "image/jpeg",
@@ -30,6 +32,11 @@ SUPPORTED_MIME = {
     "tiff": "image/tiff",
     "bmp": "image/bmp",
 }
+BANNER_FOCUS_OPTIONS = [
+    "Center",
+    "Top (Keep Roof/Sky)",
+    "Bottom (Keep Lawn/Ground)",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -79,46 +86,93 @@ def get_r2_client():
 
 
 # ---------------------------------------------------------------------------
-# Image optimisation helpers
+# Image processing helpers
 # ---------------------------------------------------------------------------
 
-def optimise_image(
-    raw_bytes: bytes,
-    *,
-    max_dimension: int = WEB_MAX_DIMENSION,
-    quality: int = DEFAULT_QUALITY,
-    strip_exif: bool = True,
-    output_format: str = "WEBP",
-) -> tuple[bytes, str]:
-    """
-    Resize (if needed) and re-encode an image for web delivery.
-
-    Returns (optimised_bytes, file_extension).
-    """
-    img = Image.open(io.BytesIO(raw_bytes))
-
-    # Normalise orientation from EXIF before stripping
-    img = ImageOps.exif_transpose(img)
-
-    # Convert to RGBA for WebP, RGB for JPEG
+def _to_web_mode(img: Image.Image, output_format: str) -> Image.Image:
+    """Ensure correct colour mode for the target format."""
     if output_format == "WEBP":
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGBA")
     else:
         if img.mode != "RGB":
             img = img.convert("RGB")
+    return img
 
-    # Downscale if either dimension exceeds the cap
+
+def process_standard(
+    raw_bytes: bytes,
+    *,
+    quality: int = DEFAULT_QUALITY,
+    strip_exif: bool = True,
+    output_format: str = "WEBP",
+) -> tuple[bytes, str]:
+    """
+    Standard upload: cap height at STANDARD_MAX_HEIGHT px (proportional scale).
+    Returns (encoded_bytes, file_extension).
+    """
+    img = Image.open(io.BytesIO(raw_bytes))
+    img = ImageOps.exif_transpose(img)
+    img = _to_web_mode(img, output_format)
+
     w, h = img.size
-    if max(w, h) > max_dimension:
-        ratio = max_dimension / max(w, h)
-        new_size = (int(w * ratio), int(h * ratio))
-        img = img.resize(new_size, Image.LANCZOS)
+    if h > STANDARD_MAX_HEIGHT:
+        ratio = STANDARD_MAX_HEIGHT / h
+        img = img.resize((int(w * ratio), STANDARD_MAX_HEIGHT), Image.LANCZOS)
 
     buf = io.BytesIO()
     save_kwargs: dict = {"quality": quality, "optimize": True}
     if output_format == "WEBP":
-        save_kwargs["method"] = 6          # slowest but best compression
+        save_kwargs["method"] = 6
+    img.save(buf, format=output_format, **save_kwargs)
+    buf.seek(0)
+
+    ext = "webp" if output_format == "WEBP" else output_format.lower()
+    return buf.read(), ext
+
+
+def process_banner(
+    raw_bytes: bytes,
+    *,
+    vertical_focus: str = "Center",
+    quality: int = DEFAULT_QUALITY,
+    strip_exif: bool = True,
+    output_format: str = "WEBP",
+) -> tuple[bytes, str]:
+    """
+    Featured banner: scale to fill 1920×810, then crop excess height based on
+    vertical_focus ('Center', 'Top (Keep Roof/Sky)', 'Bottom (Keep Lawn/Ground)').
+    Returns (encoded_bytes, file_extension).
+    """
+    img = Image.open(io.BytesIO(raw_bytes))
+    img = ImageOps.exif_transpose(img)
+    img = _to_web_mode(img, output_format)
+
+    src_w, src_h = img.size
+    target_w, target_h = BANNER_WIDTH, BANNER_HEIGHT
+
+    # Scale so the image fully covers the target canvas (cover mode)
+    scale = max(target_w / src_w, target_h / src_h)
+    scaled_w = int(src_w * scale)
+    scaled_h = int(src_h * scale)
+    img = img.resize((scaled_w, scaled_h), Image.LANCZOS)
+
+    # Crop to exact banner dimensions
+    excess_h = scaled_h - target_h
+    if vertical_focus == "Top (Keep Roof/Sky)":
+        top = 0
+    elif vertical_focus == "Bottom (Keep Lawn/Ground)":
+        top = excess_h
+    else:  # Center
+        top = excess_h // 2
+
+    left = (scaled_w - target_w) // 2
+    img = img.crop((left, top, left + target_w, top + target_h))
+
+    buf = io.BytesIO()
+    save_kwargs: dict = {"quality": quality, "optimize": True}
+    if output_format == "WEBP":
+        save_kwargs["method"] = 6
     img.save(buf, format=output_format, **save_kwargs)
     buf.seek(0)
 
@@ -164,7 +218,7 @@ def delete_object(key: str) -> None:
     client.delete_object(Bucket=BUCKET_NAME, Key=key)
 
 
-def generate_presigned_url(key: str, expires_in: int = 3600) -> str:
+def generate_presigned_url(key: str, expires_in: int = DOWNLOAD_EXPIRY) -> str:
     """Generate a presigned GET URL for a bucket object."""
     client = get_r2_client()
     return client.generate_presigned_url(
@@ -210,7 +264,6 @@ def page_browse() -> None:
         st.info("No objects found.")
         return
 
-    # Sort newest first
     objects.sort(key=lambda o: o.get("LastModified", ""), reverse=True)
 
     total_size = sum(o.get("Size", 0) for o in objects)
@@ -226,21 +279,21 @@ def page_browse() -> None:
             cols = st.columns(cols_per_row)
             for col, key in zip(cols, image_keys[row_start: row_start + cols_per_row]):
                 with col:
+                    # Use a short-lived presigned URL so the browser fetches
+                    # the image directly from R2 — no server-side download needed.
                     try:
-                        raw = download_object(key)
-                        img = Image.open(io.BytesIO(raw))
-                        img.thumbnail((MAX_DISPLAY_WIDTH // cols_per_row, 400))
-                        st.image(img, caption=key.split("/")[-1], use_container_width=True)
+                        thumb_url = generate_presigned_url(key, expires_in=THUMBNAIL_EXPIRY)
+                        st.image(thumb_url, caption=key.split("/")[-1], use_container_width=True)
                     except Exception:
-                        st.warning(f"Could not preview {key}")
+                        st.warning(f"Could not load thumbnail for {key.split('/')[-1]}")
 
                     with st.expander("Actions"):
                         obj_meta = next((o for o in objects if o["Key"] == key), {})
                         st.write(f"Size: {_fmt_bytes(obj_meta.get('Size', 0))}")
                         st.write(f"Modified: {obj_meta.get('LastModified', '—')}")
 
-                        url = generate_presigned_url(key)
-                        st.markdown(f"[Presigned link (1h)]({url})")
+                        dl_url = generate_presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
+                        st.markdown(f"[Presigned link (1h)]({dl_url})")
 
                         dl_raw = download_object(key)
                         st.download_button(
@@ -288,14 +341,34 @@ def page_upload() -> None:
         with col2:
             quality = st.slider("Quality", min_value=50, max_value=100, value=DEFAULT_QUALITY)
         with col3:
-            max_dim = st.number_input(
-                "Max dimension (px)",
-                min_value=256,
-                max_value=8192,
-                value=WEB_MAX_DIMENSION,
-                step=256,
+            strip_exif = st.checkbox("Strip EXIF metadata", value=True)
+
+        st.markdown("---")
+        st.markdown("**Sizing**")
+
+        is_banner = st.checkbox("Is Featured Banner?", value=False)
+
+        banner_focus = st.selectbox(
+            "Banner Vertical Focus",
+            BANNER_FOCUS_OPTIONS,
+            help=(
+                "Controls which part of the image is kept when cropping to "
+                f"{BANNER_WIDTH}×{BANNER_HEIGHT}px. Only applied when "
+                "'Is Featured Banner?' is checked."
+            ),
+            disabled=False,
+        )
+
+        if is_banner:
+            st.caption(
+                f"Output will be forced to exactly {BANNER_WIDTH}×{BANNER_HEIGHT}px "
+                f"and cropped using the '{banner_focus}' focus."
             )
-        strip_exif = st.checkbox("Strip EXIF metadata", value=True)
+        else:
+            st.caption(
+                f"Standard mode: height capped at {STANDARD_MAX_HEIGHT}px "
+                "(width scaled proportionally)."
+            )
 
         submitted = st.form_submit_button("Upload", type="primary")
 
@@ -303,42 +376,54 @@ def page_upload() -> None:
         return
 
     folder_prefix = folder.strip().rstrip("/") + "/" if folder.strip() else ""
+    pil_fmt = "WEBP" if output_fmt == "WebP" else ("JPEG" if output_fmt == "JPEG" else None)
+    content_type_map = {"WEBP": "image/webp", "JPEG": "image/jpeg"}
 
     progress = st.progress(0, text="Starting…")
     results: list[tuple[str, bool, str]] = []
 
     for idx, file in enumerate(uploaded_files):
-        progress.progress((idx) / len(uploaded_files), text=f"Processing {file.name}…")
+        progress.progress(idx / len(uploaded_files), text=f"Processing {file.name}…")
         raw = file.read()
         original_name = file.name
         stem = original_name.rsplit(".", 1)[0]
 
         try:
-            if output_fmt == "Original":
+            if pil_fmt is None:
+                # Original — no re-encoding
                 data = raw
                 ext = original_name.rsplit(".", 1)[-1].lower()
                 content_type = SUPPORTED_MIME.get(ext, "application/octet-stream")
                 key = f"{folder_prefix}{original_name}"
-            else:
-                pil_fmt = "WEBP" if output_fmt == "WebP" else "JPEG"
-                data, ext = optimise_image(
+            elif is_banner:
+                data, ext = process_banner(
                     raw,
-                    max_dimension=int(max_dim),
+                    vertical_focus=banner_focus,
                     quality=quality,
                     strip_exif=strip_exif,
                     output_format=pil_fmt,
                 )
-                content_type = "image/webp" if pil_fmt == "WEBP" else "image/jpeg"
+                content_type = content_type_map[pil_fmt]
+                key = f"{folder_prefix}{stem}_banner.{ext}"
+            else:
+                data, ext = process_standard(
+                    raw,
+                    quality=quality,
+                    strip_exif=strip_exif,
+                    output_format=pil_fmt,
+                )
+                content_type = content_type_map[pil_fmt]
                 key = f"{folder_prefix}{stem}.{ext}"
 
             upload_object(key, data, content_type)
 
             savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
-            msg = (
-                f"Saved as `{key}` · {_fmt_bytes(len(data))}"
-                + (f" ({savings:+.0f}% vs original)" if output_fmt != "Original" else "")
-            )
-            results.append((file.name, True, msg))
+            size_note = f"{_fmt_bytes(len(data))}"
+            if pil_fmt:
+                size_note += f" ({savings:+.0f}% vs original)"
+            if is_banner and pil_fmt:
+                size_note += f" · {BANNER_WIDTH}×{BANNER_HEIGHT}px banner"
+            results.append((file.name, True, f"Saved as `{key}` · {size_note}"))
 
         except Exception as exc:
             results.append((file.name, False, str(exc)))
@@ -360,14 +445,16 @@ def page_settings() -> None:
         "Update them in the Replit Secrets vault — no code changes required."
     )
 
-    vars_to_show = ["R2_ENDPOINT_URL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]
-    rows = []
-    for var in vars_to_show:
+    # Pure-markdown table — no numpy/pandas dependency
+    vars_to_check = ["R2_ENDPOINT_URL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]
+    rows_md = ["| Variable | Status |", "|---|:---:|"]
+    for var in vars_to_check:
         val = os.environ.get(var, "")
-        rows.append({"Variable": var, "Set": "✓" if val else "✗"})
+        status = "✅ Set" if val else "❌ Missing"
+        rows_md.append(f"| `{var}` | {status} |")
+    st.markdown("\n".join(rows_md))
 
-    st.table(rows)
-
+    st.markdown("---")
     st.subheader("Bucket health check")
     if st.button("Test connection"):
         with st.spinner("Connecting…"):
@@ -403,7 +490,6 @@ def main() -> None:
     )
 
     try:
-        # Validate credentials are present before rendering any page
         _load_r2_config()
     except EnvironmentError as exc:
         st.error(str(exc))
