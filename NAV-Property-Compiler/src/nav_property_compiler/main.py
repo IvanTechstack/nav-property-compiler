@@ -450,12 +450,18 @@ def main() -> None:
 
     _inject_css()
 
-    # Sidebar — Ivan avatar + branding
+    # Sidebar — Ivan avatar + branding (base64 embed avoids numpy/libstdc++ dependency)
     if os.path.isfile(_IVAN_IMG_PATH):
-        st.sidebar.image(_IVAN_IMG_PATH, use_container_width=True)
+        import base64
+        with open(_IVAN_IMG_PATH, "rb") as _f:
+            _b64 = base64.b64encode(_f.read()).decode()
+        st.sidebar.markdown(
+            f"<img src='data:image/png;base64,{_b64}' style='width:100%;border-radius:8px;'>",
+            unsafe_allow_html=True,
+        )
     else:
         st.sidebar.markdown(
-            f"<div style='text-align:center;font-size:3rem'>🧭</div>",
+            "<div style='text-align:center;font-size:3rem'>🧭</div>",
             unsafe_allow_html=True,
         )
 
