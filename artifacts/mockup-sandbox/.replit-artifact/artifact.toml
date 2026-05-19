@@ -10,4 +10,4 @@ name = "NAV Property Compiler"
 paths = ["/__mockup"]
 
 [services.development]
-run = "streamlit run /home/runner/workspace/NAV-Property-Compiler/src/nav_property_compiler/main.py --server.port 8000 --server.address 0.0.0.0 --server.headless true"
+run = "streamlit run /home/runner/workspace/NAV-Property-Compiler/src/nav_property_compiler/main.py --server.port 8000 --server.address 0.0.0.0 --server.headless true --server.baseUrlPath /__mockup"
