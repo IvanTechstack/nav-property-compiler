@@ -3,6 +3,7 @@ previewPath = "/__mockup"
 title = "NAV Property Compiler"
 version = "1.0.0"
 id = "XegfDyZt7HqfW2Bb8Ghoy"
+deploymentTarget = "vm"
 
 [[services]]
 localPort = 8000
@@ -13,4 +14,7 @@ paths = ["/__mockup"]
 PYTHONPATH = "/home/runner/workspace/.pythonlibs/lib/python3.12/site-packages"
 
 [services.development]
+run = "streamlit run /home/runner/workspace/NAV-Property-Compiler/src/nav_property_compiler/main.py --server.port 8000 --server.address 0.0.0.0 --server.headless true --server.baseUrlPath /__mockup"
+
+[services.production]
 run = "streamlit run /home/runner/workspace/NAV-Property-Compiler/src/nav_property_compiler/main.py --server.port 8000 --server.address 0.0.0.0 --server.headless true --server.baseUrlPath /__mockup"
