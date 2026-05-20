@@ -21,12 +21,13 @@ BUCKET_NAME = "nav-property-media"
 
 GALLERY_MAX_HEIGHT = 800     # px — portfolio gallery height cap
 BANNER_WIDTH = 1920          # px — featured banner exact output width
+STORY_COVER_MAX_WIDTH = 600  # px — interactive story cover width cap
 
 DEFAULT_QUALITY = 82
 THUMBNAIL_EXPIRY = 300       # 5-minute presigned URLs for browse thumbnails
 DOWNLOAD_EXPIRY = 3600       # 1-hour presigned URLs for download links
 
-SUPPORTED_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp", "tiff", "bmp"]
+SUPPORTED_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp", "tiff", "bmp", "gif"]
 SUPPORTED_MIME = {
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
@@ -34,7 +35,9 @@ SUPPORTED_MIME = {
     "webp": "image/webp",
     "tiff": "image/tiff",
     "bmp": "image/bmp",
+    "gif": "image/gif",
 }
+GALLERY_TYPES = ["jpg", "jpeg", "png", "webp", "tiff", "bmp"]  # no gif
 
 # Corporate palette injected via CSS
 CRIMSON = "#990000"
@@ -144,6 +147,41 @@ def process_banner(
     new_h = int(h * BANNER_WIDTH / w)
     img = img.resize((BANNER_WIDTH, new_h), Image.LANCZOS)
     return _encode(img, output_format, quality)
+
+
+def process_story_cover(
+    raw_bytes: bytes,
+    *,
+    quality: int = DEFAULT_QUALITY,
+    src_ext: str = "",
+) -> tuple[bytes, str]:
+    """
+    Scale so width ≤ STORY_COVER_MAX_WIDTH; height follows proportionally.
+    GIF input → GIF output (preserves format).
+    All other inputs → WebP output.
+    """
+    if src_ext == "gif":
+        img = Image.open(io.BytesIO(raw_bytes))
+        w, h = img.size
+        if w > STORY_COVER_MAX_WIDTH:
+            img = img.resize(
+                (STORY_COVER_MAX_WIDTH, int(h * STORY_COVER_MAX_WIDTH / w)),
+                Image.LANCZOS,
+            )
+        buf = io.BytesIO()
+        img.save(buf, format="GIF")
+        buf.seek(0)
+        return buf.read(), "gif"
+
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw_bytes)))
+    img = _to_web_mode(img, "WEBP")
+    w, h = img.size
+    if w > STORY_COVER_MAX_WIDTH:
+        img = img.resize(
+            (STORY_COVER_MAX_WIDTH, int(h * STORY_COVER_MAX_WIDTH / w)),
+            Image.LANCZOS,
+        )
+    return _encode(img, "WEBP", quality)
 
 
 # ---------------------------------------------------------------------------
@@ -257,80 +295,15 @@ def _inject_css() -> None:
 """, unsafe_allow_html=True)
 
 
-def _upload_bay(
-    *,
-    bay_key: str,
-    title: str,
-    subtitle: str,
-    mode: str,          # "gallery" | "banner"
-    folder_default: str = "",
-) -> None:
-    """Render one upload bay (used in both left and right columns)."""
-    st.markdown(f"### {title}")
-    st.caption(subtitle)
-
-    with st.form(key=f"form_{bay_key}", clear_on_submit=True):
-        files = st.file_uploader(
-            "Drop images here or click to browse",
-            type=SUPPORTED_UPLOAD_TYPES,
-            accept_multiple_files=True,
-            key=f"files_{bay_key}",
-        )
-        folder = st.text_input(
-            "Destination folder (optional)",
-            value=folder_default,
-            placeholder="e.g. properties/sydney",
-            key=f"folder_{bay_key}",
-        )
-        col_a, col_b = st.columns(2)
-        with col_a:
-            fmt = st.selectbox("Format", ["WebP", "JPEG", "Original"], key=f"fmt_{bay_key}")
-        with col_b:
-            quality = st.slider("Quality", 50, 100, DEFAULT_QUALITY, key=f"q_{bay_key}")
-
-        submitted = st.form_submit_button("Upload", type="primary", use_container_width=True)
-
-    if not submitted or not files:
-        return
-
-    folder_prefix = folder.strip().rstrip("/") + "/" if folder.strip() else ""
-    pil_fmt: str | None = {"WebP": "WEBP", "JPEG": "JPEG"}.get(fmt)
-    ct_map = {"WEBP": "image/webp", "JPEG": "image/jpeg"}
-
-    progress = st.progress(0, text="Starting…")
-    results: list[tuple[str, bool, str]] = []
-
-    for idx, f in enumerate(files):
-        progress.progress(idx / len(files), text=f"Processing {f.name}…")
-        raw = f.read()
-        stem = f.name.rsplit(".", 1)[0]
-
-        try:
-            if pil_fmt is None:
-                data, ext = raw, f.name.rsplit(".", 1)[-1].lower()
-                ct = SUPPORTED_MIME.get(ext, "application/octet-stream")
-                key = f"{folder_prefix}{f.name}"
-            elif mode == "banner":
-                data, ext = process_banner(raw, quality=quality, output_format=pil_fmt)
-                ct = ct_map[pil_fmt]
-                key = f"{folder_prefix}{stem}_banner.{ext}"
-            else:
-                data, ext = process_gallery(raw, quality=quality, output_format=pil_fmt)
-                ct = ct_map[pil_fmt]
-                key = f"{folder_prefix}{stem}.{ext}"
-
-            upload_object(key, data, ct)
-            savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
-            note = f"`{key}` · {_fmt_bytes(len(data))}"
-            if pil_fmt:
-                note += f" ({savings:+.0f}%)"
-            results.append((f.name, True, note))
-        except Exception as exc:
-            results.append((f.name, False, str(exc)))
-
-    progress.progress(1.0, text="Done")
-    for name, ok, msg in results:
-        (st.success if ok else st.error)(f"**{name}** — {msg}")
+def _col_header(label: str, spec: str, color: str) -> None:
+    """Render a colored top-accent column header with label and spec line."""
+    st.markdown(
+        f"<div style='border-top:3px solid {color};padding-top:0.6rem;margin-bottom:0.6rem'>"
+        f"<span style='font-weight:700;font-size:0.95rem;color:{color}'>{label}</span><br>"
+        f"<span style='font-size:0.75rem;color:#888'>{spec}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -414,35 +387,147 @@ def page_browse() -> None:
 
 def page_upload() -> None:
     st.header("Upload Images")
-    st.caption("Two independent upload bays — choose the right pipeline for each batch.")
 
-    left, right = st.columns(2, gap="large")
+    # ── Master prefix ──────────────────────────────────────────────────────
+    prop_input = st.text_input(
+        "🏠 Property Name or ID",
+        placeholder="e.g. 369 Kendrick Ln",
+        help="Sets the folder and filename prefix for every upload on this page.",
+    )
+    prefix = prop_input.strip().replace(" ", "-").lower()
 
-    with left:
-        st.markdown(
-            f"<div style='border-left:4px solid {SLATE};padding-left:0.75rem;margin-bottom:0.5rem'>"
-            f"<strong style='color:{SLATE}'>Portfolio Gallery</strong></div>",
-            unsafe_allow_html=True,
+    if prefix:
+        st.caption(
+            f"Upload path: **`properties/{prefix}/`**  ·  "
+            f"Files: `{prefix}-01.webp` … `{prefix}-banner.webp` · `{prefix}-story-cover.[ext]`"
         )
-        _upload_bay(
-            bay_key="gallery",
-            title="",
-            subtitle=f"Scales photos to max **{GALLERY_MAX_HEIGHT}px height** — width follows proportionally.",
-            mode="gallery",
-        )
+    else:
+        st.info("⬆ Enter a Property Name or ID to unlock the upload columns.", icon=None)
 
-    with right:
-        st.markdown(
-            f"<div style='border-left:4px solid {CRIMSON};padding-left:0.75rem;margin-bottom:0.5rem'>"
-            f"<strong style='color:{CRIMSON}'>Featured Banner</strong></div>",
-            unsafe_allow_html=True,
+    st.markdown("<div style='margin:0.5rem 0'></div>", unsafe_allow_html=True)
+
+    col_gallery, col_banner, col_story = st.columns(3, gap="medium")
+
+    # ── Left: Portfolio Gallery ────────────────────────────────────────────
+    with col_gallery:
+        _col_header(
+            "Portfolio Gallery",
+            f"Max {GALLERY_MAX_HEIGHT}px height · WebP · sequential naming",
+            SLATE,
         )
-        _upload_bay(
-            bay_key="banner",
-            title="",
-            subtitle=f"Forces width to exactly **{BANNER_WIDTH}px** — height scales naturally, zero cropping.",
-            mode="banner",
+        with st.form("form_gallery", clear_on_submit=True):
+            gallery_files = st.file_uploader(
+                "Images (multiple allowed)",
+                type=GALLERY_TYPES,
+                accept_multiple_files=True,
+                key="files_gallery",
+            )
+            gallery_quality = st.slider("Quality", 60, 100, DEFAULT_QUALITY, key="q_gallery")
+            gallery_submit = st.form_submit_button(
+                "↑ Upload Gallery", type="primary", use_container_width=True
+            )
+
+        if gallery_submit:
+            if not prefix:
+                st.error("Enter a Property Name or ID first.")
+            elif not gallery_files:
+                st.warning("Select at least one image.")
+            else:
+                prog = st.progress(0, text="Processing…")
+                for idx, f in enumerate(gallery_files):
+                    prog.progress(idx / len(gallery_files), text=f"{f.name}…")
+                    raw = f.read()
+                    try:
+                        data, _ = process_gallery(raw, quality=gallery_quality)
+                        seq = str(idx + 1).zfill(2)
+                        key = f"properties/{prefix}/{prefix}-{seq}.webp"
+                        upload_object(key, data, "image/webp")
+                        savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
+                        st.success(f"✓ `{prefix}-{seq}.webp` — {_fmt_bytes(len(data))} ({savings:+.0f}%)")
+                    except Exception as exc:
+                        st.error(f"✗ {f.name}: {exc}")
+                prog.progress(1.0, text="Done")
+
+    # ── Middle: Featured Banner ────────────────────────────────────────────
+    with col_banner:
+        _col_header(
+            "Featured Banner",
+            f"Exactly {BANNER_WIDTH}px wide · WebP · no crop",
+            CRIMSON,
         )
+        with st.form("form_banner", clear_on_submit=True):
+            banner_file = st.file_uploader(
+                "One image",
+                type=GALLERY_TYPES,
+                accept_multiple_files=False,
+                key="files_banner",
+            )
+            banner_quality = st.slider("Quality", 60, 100, DEFAULT_QUALITY, key="q_banner")
+            banner_submit = st.form_submit_button(
+                "↑ Upload Banner", type="primary", use_container_width=True
+            )
+
+        if banner_submit:
+            if not prefix:
+                st.error("Enter a Property Name or ID first.")
+            elif not banner_file:
+                st.warning("Select an image.")
+            else:
+                with st.spinner("Processing…"):
+                    try:
+                        raw = banner_file.read()
+                        data, _ = process_banner(raw, quality=banner_quality)
+                        key = f"properties/{prefix}/{prefix}-banner.webp"
+                        upload_object(key, data, "image/webp")
+                        savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
+                        st.success(
+                            f"✓ `{prefix}-banner.webp` — {_fmt_bytes(len(data))} ({savings:+.0f}%)"
+                        )
+                    except Exception as exc:
+                        st.error(f"✗ {banner_file.name}: {exc}")
+
+    # ── Right: Interactive Story Cover ─────────────────────────────────────
+    with col_story:
+        _col_header(
+            "Story Cover",
+            f"Max {STORY_COVER_MAX_WIDTH}px wide · GIF preserved · WebP otherwise",
+            BLACK,
+        )
+        with st.form("form_story", clear_on_submit=True):
+            story_file = st.file_uploader(
+                "One GIF or image",
+                type=SUPPORTED_UPLOAD_TYPES,
+                accept_multiple_files=False,
+                key="files_story",
+            )
+            story_quality = st.slider("Quality", 60, 100, DEFAULT_QUALITY, key="q_story")
+            story_submit = st.form_submit_button(
+                "↑ Upload Story Cover", type="primary", use_container_width=True
+            )
+
+        if story_submit:
+            if not prefix:
+                st.error("Enter a Property Name or ID first.")
+            elif not story_file:
+                st.warning("Select a file.")
+            else:
+                with st.spinner("Processing…"):
+                    try:
+                        raw = story_file.read()
+                        src_ext = story_file.name.rsplit(".", 1)[-1].lower()
+                        data, out_ext = process_story_cover(
+                            raw, quality=story_quality, src_ext=src_ext
+                        )
+                        ct = "image/gif" if out_ext == "gif" else "image/webp"
+                        key = f"properties/{prefix}/{prefix}-story-cover.{out_ext}"
+                        upload_object(key, data, ct)
+                        savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
+                        st.success(
+                            f"✓ `{prefix}-story-cover.{out_ext}` — "
+                            f"{_fmt_bytes(len(data))} ({savings:+.0f}%)"
+                        )
+                    except Exception as exc:
+                        st.error(f"✗ {story_file.name}: {exc}")
 
 
 def page_settings() -> None:
