@@ -417,14 +417,15 @@ def page_browse() -> None:
 def page_upload() -> None:
     st.header("Upload Images")
 
-    # --- UI Enhancement for Property ID Validation ---
-    st.info("⚠️ **CRITICAL STEP:** You must enter a valid Property Name or ID below (e.g., '369 Kendrick Ln') BEFORE staging files or clicking upload. Leaving this blank will freeze the processing pipeline.", icon="🏠")
-
     # ── Master prefix ──────────────────────────────────────────────────────
     prop_input = st.text_input(
         "🏠 Property Name or ID",
         placeholder="e.g. 369 Kendrick Ln",
         help="Sets the folder and filename prefix for every upload on this page.",
+    )
+    st.markdown(
+        "**You must enter a valid Property Name or ID above (e.g., '369 Kendrick Ln') "
+        "BEFORE staging files or clicking upload.**"
     )
     prefix = prop_input.strip().replace(" ", "-").lower()
 
