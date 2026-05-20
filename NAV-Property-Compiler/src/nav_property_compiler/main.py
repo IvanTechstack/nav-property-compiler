@@ -71,17 +71,28 @@ class R2Config:
     bucket: str = BUCKET_NAME
 
 
+def _get_secret(key: str) -> str:
+    """Read from st.secrets (Streamlit Cloud) with fallback to os.environ (local/Replit)."""
+    try:
+        val = st.secrets.get(key, "")
+        if val:
+            return str(val).strip()
+    except Exception:
+        pass
+    return os.environ.get(key, "").strip()
+
+
 def _load_r2_config() -> R2Config:
-    endpoint = os.environ.get("R2_ENDPOINT_URL", "").strip()
-    key_id = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
-    secret = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
+    endpoint = _get_secret("R2_ENDPOINT_URL")
+    key_id   = _get_secret("R2_ACCESS_KEY_ID")
+    secret   = _get_secret("R2_SECRET_ACCESS_KEY")
     missing = [k for k, v in {
         "R2_ENDPOINT_URL": endpoint,
         "R2_ACCESS_KEY_ID": key_id,
         "R2_SECRET_ACCESS_KEY": secret,
     }.items() if not v]
     if missing:
-        raise EnvironmentError(f"Missing environment variables: {', '.join(missing)}")
+        raise EnvironmentError(f"Missing secrets/env vars: {', '.join(missing)}")
     return R2Config(endpoint_url=endpoint, access_key_id=key_id, secret_access_key=secret)
 
 
