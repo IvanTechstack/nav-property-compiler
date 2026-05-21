@@ -359,15 +359,18 @@ def page_browse() -> None:
         help="Select a property to view only its assets, or leave on 'All' for the full bucket.",
     )
 
-    # Initialize tracking maps inside global state session dictionary safely
+    # Initialize session states safely
     if "selected_images" not in st.session_state:
         st.session_state.selected_images = {}
     if "active_folder" not in st.session_state:
         st.session_state.active_folder = ALL_LABEL
+    if "staged_keys" not in st.session_state:
+        st.session_state.staged_keys = []
 
-    # Force a complete selection memory wipe if the user switches folders
+    # Clean wipe on folder changes
     if st.session_state.active_folder != selected:
         st.session_state.selected_images = {}
+        st.session_state.staged_keys = []
         st.session_state.zip_ready = False
         st.session_state.zip_bytes = None
         st.session_state.active_folder = selected
@@ -389,44 +392,39 @@ def page_browse() -> None:
     image_keys = [o["Key"] for o in objects if _is_image(o["Key"])]
     other_keys = [o["Key"] for o in objects if not _is_image(o["Key"])]
 
-    # 🛠️ THE NEW COMMAND CENTER DASHBOARD (ONLY RNDERS ON VALID ACTIVE FOLDERS)
+    # 🛠️ THE NEW COMMAND CENTER DASHBOARD (RENDERS ON VALID FOLDERS)
     if selected != ALL_LABEL and image_keys:
         st.markdown("### 🛠️ Bulk Actions Command Center")
         
-        # Grid controls row
         ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.5, 1.5, 5])
 
         with ctrl_col1:
             if st.button("✅ Select All Images", use_container_width=True):
                 for k in image_keys:
                     st.session_state.selected_images[k] = True
-                st.session_state.zip_ready = False
                 st.rerun()
 
         with ctrl_col2:
             if st.button("❌ Clear All Selections", use_container_width=True):
                 st.session_state.selected_images = {}
+                st.session_state.staged_keys = []
                 st.session_state.zip_ready = False
                 st.rerun()
 
-        # Extract strictly what keys are verified true right now
+        # Extract currently checked keys
         checked_keys = [k for k in image_keys if st.session_state.selected_images.get(k, False)]
 
-        # Action banner block
-        if checked_keys:
-            st.markdown(f"**⚡ Staged Actions Panel:** `{len(checked_keys)}` image(s) selected.")
-            action_col1, action_col2, action_col3 = st.columns([2.5, 2.5, 3])
+        # Dynamic Action Banner (Only visible if keys are actively staged or compiled)
+        display_keys = st.session_state.staged_keys if st.session_state.zip_ready else checked_keys
+        
+        if display_keys:
+            st.markdown(f"**⚡ Staged Actions Panel:** `{len(display_keys)}` image(s) selected.")
+            action_col1, action_col2, action_col3 = st.columns([3.5, 2.5, 3])
             
             with action_col1:
                 zip_btn_placeholder = st.empty()
-                current_sig = f"sig_{len(checked_keys)}_{hash(tuple(sorted(checked_keys)))}"
-                
-                if st.session_state.get("last_compiled_sig") != current_sig:
-                    st.session_state.zip_ready = False
-                    st.session_state.zip_bytes = None
-                    st.session_state.last_compiled_sig = current_sig
-
                 if not st.session_state.zip_ready:
+                    # Compiled layout button trigger
                     if zip_btn_placeholder.button("📦 Compile Selection Package", type="secondary", use_container_width=True):
                         with st.spinner("Bundling compressed ZIP package…"):
                             try:
@@ -438,6 +436,7 @@ def page_browse() -> None:
                                         zip_file.writestr(file_name, file_bytes)
                                 zip_buffer.seek(0)
                                 st.session_state.zip_bytes = zip_buffer.getvalue()
+                                st.session_state.staged_keys = checked_keys.copy()
                                 st.session_state.zip_ready = True
                                 st.rerun()
                             except Exception as e:
@@ -455,13 +454,15 @@ def page_browse() -> None:
             with action_col2:
                 if st.button("🗑️ Delete Selected Assets", type="secondary", use_container_width=True):
                     with st.spinner("Executing bulk delete…"):
-                        for key in checked_keys:
+                        targets = st.session_state.staged_keys if st.session_state.zip_ready else checked_keys
+                        for key in targets:
                             delete_object(key)
                             if key in st.session_state.selected_images:
                                 del st.session_state.selected_images[key]
                     st.session_state.zip_ready = False
+                    st.session_state.staged_keys = []
                     st.session_state.zip_bytes = None
-                    st.success(f"Purged {len(checked_keys)} files successfully.")
+                    st.success("Selected assets purged successfully.")
                     st.rerun()
             
             with action_col3:
@@ -473,91 +474,97 @@ def page_browse() -> None:
                             if key in st.session_state.selected_images:
                                 del st.session_state.selected_images[key]
                     st.session_state.zip_ready = False
+                    st.session_state.staged_keys = []
                     st.session_state.zip_bytes = None
-                    st.success(f"Directory {selected} completely purged out of storage.")
+                    st.success(f"Directory {selected} completely removed.")
                     st.rerun()
         else:
-            st.info("💡 Check the select boxes underneath individual image cards below to run batch actions.")
+            st.info("💡 Complete your checkbox selections below, then click 'Select the Photos to Download' at the upper-right of the directory grid.")
 
         st.markdown("---")
 
-    # ── Render Image Grid with integrated checkboxes ───────────────────────
+    # ── Header Navigation Formatting (IN-LINE UPPER RIGHT ALIGNMENT) ───────────────────────
     if image_keys:
-        st.subheader("Images Directory Grid")
+        hdr_col1, hdr_col2 = st.columns([5, 3])
         
-        # 🧪 THE ANTI-FLASH REACTION FORM BLOCK
-        # Wrapping checkboxes inside a local form lets us click instantly with ZERO screen fades
-        with st.form(key="directory_grid_form"):
+        with hdr_col1:
+            st.subheader("Images Directory Grid")
+            
+        with hdr_col2:
             if selected == ALL_LABEL:
-                st.caption("ℹ️ Selection tools are disabled while browsing all properties. Select a folder to run batch actions.")
+                # Beautiful inline alert text aligned cleanly right
+                st.markdown("<div style='text-align: right; margin-top: 0.6rem; color: #888; font-size: 0.85rem; font-weight: 600;'>ℹ️ Select a folder to unlock bulk tools</div>", unsafe_allow_html=True)
             else:
-                form_submit_col, _ = st.columns([2, 6])
-                with form_submit_col:
-                    st.form_submit_button("⚡ Stage Checkbox Selections", type="primary", use_container_width=True)
-
-            cols_per_row = 3
-            for row_start in range(0, len(image_keys), cols_per_row):
-                cols = st.columns(cols_per_row)
-                for col, key in zip(cols, image_keys[row_start: row_start + cols_per_row]):
-                    with col:
-                        b64 = _thumbnail_b64(key)
-                        filename = key.split("/")[-1]
-                        if b64:
-                            st.markdown(
-                                f"<img src='data:image/jpeg;base64,{b64}' "
-                                f"style='width:100%;border-radius:6px;display:block;'>",
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            st.markdown(
-                                f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;"
-                                f"text-align:center;color:#999;font-size:0.8rem'>"
-                                f"⚠ {filename}</div>",
-                                unsafe_allow_html=True,
-                            )
-                        
-                        # Guard evaluation: Block select toggles if on root label list
-                        if selected == ALL_LABEL:
-                            st.checkbox("Select asset", key=f"cb_{key}", value=False, disabled=True)
-                        else:
-                            # Render standard select checkboxes inside the form safely
-                            st.checkbox(
-                                "Select asset", 
-                                key=f"cb_{key}", 
-                                value=st.session_state.selected_images.get(key, False)
-                            )
-
-        # 🔄 After the form is submitted, update state tracking maps once smoothly
-        if selected != ALL_LABEL:
-            for key in image_keys:
-                form_val = st.session_state.get(f"cb_{key}", False)
-                if form_val != st.session_state.selected_images.get(key, False):
-                    st.session_state.selected_images[key] = form_val
+                # Sharp, Crimson button aligned perfectly upper-right
+                if st.button("Select the Photos to Download", type="primary", use_container_width=True):
+                    # Pull values straight out of layout checkboxes seamlessly
+                    new_selections = []
+                    for key in image_keys:
+                        if st.session_state.get(f"state_cb_{key}", False):
+                            new_selections.append(key)
+                    
+                    # Store variables directly into session memory pipeline
+                    st.session_state.selected_images = {k: (k in new_selections) for k in image_keys}
                     st.session_state.zip_ready = False
-
-        # Individual action items row expanders
-        st.markdown("<br>", unsafe_allow_html=True)
-        for key in image_keys:
-            filename = key.split("/")[-1]
-            with st.expander(f"🔍 Individual Actions File: {filename}"):
-                meta = next((o for o in objects if o["Key"] == key), {})
-                st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
-                st.write(f"Modified: {meta.get('LastModified', '—')}")
-                dl = presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
-                st.markdown(f"[Presigned link (1h)]({dl})")
-                st.download_button(
-                    "Download single file",
-                    data=download_object(key),
-                    file_name=filename,
-                    key=f"dl_{key}",
-                )
-                if st.button("Delete single asset", key=f"del_{key}", type="secondary"):
-                    delete_object(key)
-                    if key in st.session_state.selected_images:
-                        del st.session_state.selected_images[key]
-                    st.session_state.zip_ready = False
-                    st.success(f"Deleted {key}")
+                    st.success(f"⚡ Staged {len(new_selections)} assets! Scroll up to the Command Center to run your export package.")
                     st.rerun()
+
+        # ── Grid Render Loop ──────────────────────────────────────────────────
+        cols_per_row = 3
+        for row_start in range(0, len(image_keys), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for col, key in zip(cols, image_keys[row_start: row_start + cols_per_row]):
+                with col:
+                    b64 = _thumbnail_b64(key)
+                    filename = key.split("/")[-1]
+                    if b64:
+                        st.markdown(
+                            f"<img src='data:image/jpeg;base64,{b64}' "
+                            f"style='width:100%;border-radius:6px;display:block;'>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;"
+                            f"text-align:center;color:#999;font-size:0.8rem'>"
+                            f"⚠ {filename}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    
+                    # Stateful inline selector check rules
+                    if selected == ALL_LABEL:
+                        # Stateful trigger catch if root view box is clicked
+                        if st.checkbox("Select asset", key=f"state_cb_{key}", value=False):
+                            st.toast("⚠️ Please choose a target property folder first!", icon="📁")
+                            st.rerun()
+                    else:
+                        # Render steady, zero-flash checkboxes cleanly
+                        st.checkbox(
+                            "Select asset", 
+                            key=f"state_cb_{key}", 
+                            value=st.session_state.selected_images.get(key, False)
+                        )
+                    
+                    # Individual item expander records
+                    with st.expander(f"🔍 View Actions ({filename})"):
+                        meta = next((o for o in objects if o["Key"] == key), {})
+                        st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
+                        st.write(f"Modified: {meta.get('LastModified', '—')}")
+                        dl = presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
+                        st.markdown(f"[Presigned link (1h)]({dl})")
+                        st.download_button(
+                            "Download single file",
+                            data=download_object(key),
+                            file_name=filename,
+                            key=f"dl_{key}",
+                        )
+                        if st.button("Delete single asset", key=f"del_{key}", type="secondary"):
+                            delete_object(key)
+                            if key in st.session_state.selected_images:
+                                del st.session_state.selected_images[key]
+                            st.session_state.zip_ready = False
+                            st.success(f"Deleted {key}")
+                            st.rerun()
 
     if other_keys:
         st.subheader("Other files")
@@ -744,7 +751,7 @@ def page_upload() -> None:
                 st.error(f"✗ {story_file.name}: {exc}")
                 total_err += 1
 
-    # ── Summary ────────────────────────────────----------------────────────
+    # ── Summary ────────────────────────────────────────────────────────────
     st.markdown("---")
     if total_err == 0:
         st.success(f"🎉 Package complete — {total_ok} file(s) uploaded to `properties/{prefix}/`")
