@@ -376,26 +376,32 @@ def page_browse() -> None:
     image_keys = [o["Key"] for o in objects if _is_image(o["Key"])]
     other_keys = [o["Key"] for o in objects if not _is_image(o["Key"])]
 
-    # 🛠️ NEW COMMAND CENTER DASHBOARD (PLUGGED DIRECTLY AT TOP)
-    if image_keys:
+    # Tracking selection map inside global state container
+    if "selected_images" not in st.session_state:
+        st.session_state.selected_images = {}
+
+    # Mass Management Safety Gate Block
+    if selected == ALL_LABEL:
+        st.markdown("---")
+        st.warning("⚠️ **Mass Management Protection Active:** Please select a specific property folder from the dropdown menu above to unlock the Bulk Actions Command Center. Mass deletion/downloads from the root library are restricted for safety.")
+        st.markdown("---")
+    elif image_keys:
         st.markdown("### 🛠️ Bulk Actions Command Center")
         
         # Grid controls row
         ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.5, 1.5, 5])
-        
-        # Tracking selection map inside local container state
-        if "selected_images" not in st.session_state:
-            st.session_state.selected_images = {}
 
         with ctrl_col1:
             if st.button("✅ Select All Images", use_container_width=True):
                 for k in image_keys:
                     st.session_state.selected_images[k] = True
+                st.session_state.zip_ready = False  # Reset zip on global shift
                 st.rerun()
 
         with ctrl_col2:
             if st.button("❌ Clear All Selections", use_container_width=True):
                 st.session_state.selected_images = {}
+                st.session_state.zip_ready = False  # Reset zip on global wipe
                 st.rerun()
 
         # Isolate exactly what is checked right now
@@ -404,30 +410,45 @@ def page_browse() -> None:
         # Dynamic Execution Action Banner
         if checked_keys:
             st.markdown(f"**⚡ Staged Actions Panel:** `{len(checked_keys)}` image(s) selected.")
-            action_col1, action_col2, action_col3, _ = st.columns([2, 2, 2, 2])
+            action_col1, action_col2, action_col3 = st.columns([2.5, 2.5, 3])
             
             with action_col1:
-                # 📥 RAM ZIP GENERATOR BLOCK
-                with st.spinner("Bundling ZIP package…"):
-                    try:
-                        zip_buffer = io.BytesIO()
-                        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                            for idx, key in enumerate(checked_keys):
-                                file_bytes = download_object(key)
-                                file_name = key.split("/")[-1]
-                                zip_file.writestr(file_name, file_bytes)
-                        zip_buffer.seek(0)
-                        
-                        st.download_button(
-                            label="📥 Download Selected (.zip)",
-                            data=zip_buffer,
-                            file_name=f"media-package-selection.zip",
-                            mime="application/zip",
-                            use_container_width=True,
-                            type="primary"
-                        )
-                    except Exception as e:
-                        st.error(f"ZIP error: {e}")
+                # 🔒 THE LOCKED EXPLICIT COMPILATION PIPELINE (ELIMINATES AUTO-ZIP LOOP)
+                zip_btn_placeholder = st.empty()
+                
+                # Check signature of current selection
+                current_sig = f"sig_{len(checked_keys)}_{hash(tuple(sorted(checked_keys)))}"
+                
+                if st.session_state.get("last_compiled_sig") != current_sig:
+                    st.session_state.zip_ready = False
+                    st.session_state.zip_bytes = None
+                    st.session_state.last_compiled_sig = current_sig
+
+                if not st.session_state.zip_ready:
+                    if zip_btn_placeholder.button("📦 Compile Selection Package", type="secondary", use_container_width=True, help="Bundles your selected photos in memory before showing the download link."):
+                        with st.spinner("Bundling compressed ZIP package…"):
+                            try:
+                                zip_buffer = io.BytesIO()
+                                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                                    for key in checked_keys:
+                                        file_bytes = download_object(key)
+                                        file_name = key.split("/")[-1]
+                                        zip_file.writestr(file_name, file_bytes)
+                                zip_buffer.seek(0)
+                                st.session_state.zip_bytes = zip_buffer.getvalue()
+                                st.session_state.zip_ready = True
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"ZIP creation failed: {e}")
+                else:
+                    zip_btn_placeholder.download_button(
+                        label="📥 Download Selection Package (.zip)",
+                        data=st.session_state.zip_bytes,
+                        file_name=f"{selected.split('/')[-2] if len(selected.split('/')) >= 3 else 'package'}-selection.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        type="primary"
+                    )
 
             with action_col2:
                 if st.button("🗑️ Delete Selected Assets", type="secondary", use_container_width=True):
@@ -436,23 +457,25 @@ def page_browse() -> None:
                             delete_object(key)
                             if key in st.session_state.selected_images:
                                 del st.session_state.selected_images[key]
+                    st.session_state.zip_ready = False
+                    st.session_state.zip_bytes = None
                     st.success(f"Purged {len(checked_keys)} files successfully.")
                     st.rerun()
             
             with action_col3:
-                # Target check if isolated folder selection is active
-                if selected != ALL_LABEL:
-                    if st.button("🚨 Purge Entire Property Folder", type="secondary", use_container_width=True, help="Permanently wipes out this entire directory route from R2 storage."):
-                        with st.spinner("Wiping directory completely…"):
-                            all_folder_files = [o["Key"] for o in objects]
-                            for key in all_folder_files:
-                                delete_object(key)
-                                if key in st.session_state.selected_images:
-                                    del st.session_state.selected_images[key]
-                        st.success(f"Directory {selected} completely removed.")
-                        st.rerun()
+                if st.button("🚨 Purge Entire Property Folder", type="secondary", use_container_width=True):
+                    with st.spinner("Wiping entire folder directory path…"):
+                        all_folder_files = [o["Key"] for o in objects]
+                        for key in all_folder_files:
+                            delete_object(key)
+                            if key in st.session_state.selected_images:
+                                del st.session_state.selected_images[key]
+                    st.session_state.zip_ready = False
+                    st.session_state.zip_bytes = None
+                    st.success(f"Directory {selected} completely purged out of storage.")
+                    st.rerun()
         else:
-            st.info("💡 Check the select boxes directly underneath the image cells below to stage batch downloads or deletions.")
+            st.info("💡 Check the select boxes underneath individual image cards below to run batch actions.")
 
         st.markdown("---")
 
@@ -480,14 +503,18 @@ def page_browse() -> None:
                             unsafe_allow_html=True,
                         )
                     
-                    # Core individual toggle selector
+                    # Selection check state handler
+                    current_val = st.session_state.selected_images.get(key, False)
                     is_checked = st.checkbox(
                         f"Select asset", 
                         key=f"cb_{key}", 
-                        value=st.session_state.selected_images.get(key, False),
+                        value=current_val,
                         label_visibility="visible"
                     )
-                    st.session_state.selected_images[key] = is_checked
+                    if is_checked != current_val:
+                        st.session_state.selected_images[key] = is_checked
+                        st.session_state.zip_ready = False  # Soft reset package when checklist adjusts
+                        st.rerun()
                     
                     # Individual item details expander
                     with st.expander(f"🔍 View Actions ({filename})"):
@@ -506,6 +533,7 @@ def page_browse() -> None:
                             delete_object(key)
                             if key in st.session_state.selected_images:
                                 del st.session_state.selected_images[key]
+                            st.session_state.zip_ready = False
                             st.success(f"Deleted {key}")
                             st.rerun()
 
@@ -694,7 +722,7 @@ def page_upload() -> None:
                 st.error(f"✗ {story_file.name}: {exc}")
                 total_err += 1
 
-    # ── Summary ────────────────────────────────────────────────────────────
+    # ── Summary ────────────────────────────────----------------────────────
     st.markdown("---")
     if total_err == 0:
         st.success(f"🎉 Package complete — {total_ok} file(s) uploaded to `properties/{prefix}/`")
