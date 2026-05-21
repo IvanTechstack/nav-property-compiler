@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import zipfile
 from dataclasses import dataclass
 
@@ -58,7 +59,7 @@ R2_CORS_CONFIG = [
 
 
 # ---------------------------------------------------------------------------
-# R2 Client Connection
+# R2 Client Connection Gateway
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -107,7 +108,7 @@ def get_r2_client():
 
 
 # ---------------------------------------------------------------------------
-# Core Image Optimizers
+# Image Optimization Mechanics
 # ---------------------------------------------------------------------------
 
 def _to_web_mode(img: Image.Image, fmt: str) -> Image.Image:
@@ -220,6 +221,42 @@ def _thumbnail_b64(key: str, max_w: int = 400) -> str | None:
         return None
 
 
+def _parse_range_string(input_str: str, max_val: int) -> set[int]:
+    """Parse selection shorthand string like '1, 2, 5-10, 15' into a set of 0-based indices."""
+    indices = set()
+    if not input_str.strip():
+        return indices
+    
+    # Strip any characters that aren't numbers, commas, or dashes
+    cleaned = re.sub(r'[^0-9,\-]', '', input_str)
+    parts = cleaned.split(',')
+    
+    for part in parts:
+        if not part:
+            continue
+        if '-' in part:
+            try:
+                start_str, end_str = part.split('-', 1)
+                start = int(start_str)
+                end = int(end_str)
+                # Cap constraints within current directory boundaries
+                start = max(1, min(start, max_val))
+                end = max(1, min(end, max_val))
+                if start <= end:
+                    for i in range(start, end + 1):
+                        indices.add(i - 1)
+            except ValueError:
+                continue
+        else:
+            try:
+                val = int(part)
+                if 1 <= val <= max_val:
+                    indices.add(val - 1)
+            except ValueError:
+                continue
+    return indices
+
+
 def _inject_css() -> None:
     st.markdown(f"""
 <style>
@@ -243,6 +280,18 @@ def _inject_css() -> None:
         border: none;
         border-top: 1px solid #d9d9d9;
         margin: 0.75rem 0 1rem 0;
+    }}
+    /* Asset marker stamp indicator style */
+    .img-index-badge {{
+        background-color: {CRIMSON};
+        color: white;
+        padding: 0.2rem 0.5rem;
+        font-family: monospace;
+        font-size: 0.85rem;
+        font-weight: bold;
+        border-radius: 4px;
+        margin-bottom: 0.4rem;
+        display: inline-block;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -300,7 +349,7 @@ def page_browse() -> None:
     image_keys = [o["Key"] for o in objects if _is_image(o["Key"])]
     other_keys = [o["Key"] for o in objects if not _is_image(o["Key"])]
 
-    # 📁 COMMAND ALIGNMENT ROW (UPPER-RIGHT PLACEMENT)
+    # 📁 IN-LINE COMMAND ACCENT BAR (UPPER RIGHT ALIGNMENT)
     hdr_left, hdr_right = st.columns([5, 3])
     with hdr_left:
         st.subheader("Images Directory Grid")
@@ -310,103 +359,125 @@ def page_browse() -> None:
         else:
             st.markdown(f"<div style='text-align: right; margin-top: 0.4rem; color: {CRIMSON}; font-size: 0.9rem; font-weight: 700;'>📁 Active Folder Mode</div>", unsafe_allow_html=True)
 
-    # Gather exactly what is selected in browser memory right now (ZERO-LAG ENGINE)
-    active_selected = []
-    if selected != ALL_LABEL:
-        for k in image_keys:
-            if st.session_state.get(f"v_cb_{k}", False):
-                active_selected.append(k)
-
-    # Bulk Actions Center Dashboard
+    # 🛠️ ZERO-FLICKER TEXT SELECTION COMMAND CENTER
     if selected != ALL_LABEL and image_keys:
         st.markdown("### 🛠️ Bulk Actions Command Center")
-        ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([1.5, 1.5, 2.5, 2.5])
         
-        with ctrl_col1:
-            if st.button("✅ Select All", use_container_width=True):
-                for k in image_keys:
-                    st.session_state[f"v_cb_{k}"] = True
-                st.rerun()
-        with ctrl_col2:
-            if st.button("❌ Clear All", use_container_width=True):
-                for k in image_keys:
-                    st.session_state[f"v_cb_{k}"] = False
-                st.rerun()
-        with ctrl_col3:
-            if active_selected:
+        # User input selector bar
+        input_col, help_col = st.columns([4, 4])
+        with input_col:
+            selection_input = st.text_input(
+                "🔢 Enter Target Image Numbers or Ranges",
+                placeholder="e.g. 1, 2, 5-10, 15",
+                key="text_selection_input_field",
+                help="Type individual numbers or dash-separated limits separated by commas."
+            )
+        with help_col:
+            st.markdown(
+                f"<div style='margin-top: 1.6rem; color: #666; font-size: 0.8rem; line-height: 1.2;'>"
+                f"Available numbers: <b>1 to {len(image_keys)}</b><br>"
+                f"Leave blank to select <i>nothing</i>, or type <b>1-{len(image_keys)}</b> to select everything."
+                f"</div>", 
+                unsafe_allow_html=True
+            )
+
+        # Parse target index values safely from state input string
+        selected_indices = _parse_range_string(selection_input, len(image_keys))
+        targeted_keys = [image_keys[i] for i in sorted(selected_indices)]
+
+        # Execution actions console row
+        if targeted_keys:
+            st.markdown(f"**⚡ Staged Actions Panel:** `{len(targeted_keys)}` image(s) targeted from input selection.")
+            btn_col1, btn_col2, btn_col3 = st.columns([3, 2.5, 2.5])
+            
+            with btn_col1:
                 try:
-                    # ONE-CLICK background compilation ZIP download asset pack
+                    # One-Click background package compilation download link
                     zip_io = io.BytesIO()
                     with zipfile.ZipFile(zip_io, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                        for key in active_selected:
+                        for key in targeted_keys:
                             zip_file.writestr(key.split("/")[-1], download_object(key))
                     zip_io.seek(0)
                     
                     st.download_button(
-                        label=f"📥 Download Selected ({len(active_selected)})",
+                        label=f"📥 Download Selected ({len(targeted_keys)})",
                         data=zip_io.getvalue(),
-                        file_name=f"{selected.split('/')[-2]}-media.zip",
+                        file_name=f"{selected.split('/')[-2]}-selection.zip",
                         mime="application/zip",
                         use_container_width=True,
                         type="primary"
                     )
-                except Exception as zip_err:
-                    st.error(f"ZIP error: {zip_err}")
-            else:
-                st.button("📥 Download Selected (0)", disabled=True, use_container_width=True)
-        with ctrl_col4:
-            if active_selected:
+                except Exception as e:
+                    st.error(f"ZIP Engine error: {e}")
+
+            with btn_col2:
                 if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
-                    with st.spinner("Deleting files…"):
-                        for key in active_selected:
+                    with st.spinner("Deleting selected images…"):
+                        for key in targeted_keys:
                             delete_object(key)
-                            st.session_state[f"v_cb_{key}"] = False
-                    st.success("Selected photos removed.")
+                    st.success(f"Purged {len(targeted_keys)} targeted files.")
                     st.rerun()
-            else:
+
+            with btn_col3:
                 if st.button("🚨 Purge Folder", type="secondary", use_container_width=True):
-                    with st.spinner("Wiping directory path…"):
+                    with st.spinner("Wiping entire directory route…"):
                         for key in [o["Key"] for o in objects]:
                             delete_object(key)
-                            st.session_state[f"v_cb_{key}"] = False
+                    st.success("Folder purged completely.")
+                    st.rerun()
+        else:
+            # Fallback action dashboard layout when string buffer evaluates blank
+            btn_col1, btn_col2, btn_col3 = st.columns([3, 2.5, 2.5])
+            with btn_col1:
+                st.button("📥 Download Selected (0)", disabled=True, use_container_width=True)
+            with btn_col2:
+                st.button("🗑️ Delete Selected (0)", disabled=True, use_container_width=True)
+            with btn_col3:
+                if st.button("🚨 Purge Folder", type="secondary", use_container_width=True):
+                    with st.spinner("Wiping directory route…"):
+                        for key in [o["Key"] for o in objects]:
+                            delete_object(key)
                     st.success("Folder cleared completely.")
                     st.rerun()
 
         st.markdown("---")
 
-    # ── Render Image Directory Grid ───────────────────────────────────────
+    # ── Render Solid, Zero-Flicker Grid ───────────────────────────────────
     if image_keys:
         cols_per_row = 3
         for row_start in range(0, len(image_keys), cols_per_row):
             cols = st.columns(cols_per_row)
-            for col, key in zip(cols, image_keys[row_start: row_start + cols_per_row]):
+            for idx, (col, key) in enumerate(zip(cols, image_keys[row_start: row_start + cols_per_row])):
+                # Calculate real sequential counting label number
+                current_number = row_start + idx + 1
+                
                 with col:
+                    # Dynamic border outline highlighting if index is targeted in input range string
+                    is_targeted = (selected != ALL_LABEL) and ((current_number - 1) in selected_indices)
+                    border_style = f"box-shadow: 0 0 0 3px {CRIMSON};" if is_targeted else ""
+                    
                     b64 = _thumbnail_b64(key)
                     filename = key.split("/")[-1]
-                    if b64:
-                        st.markdown(f"<img src='data:image/jpeg;base64,{b64}' style='width:100%;border-radius:6px;display:block;'>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;text-align:center;color:#999;font-size:0.8rem'>⚠ {filename}</div>", unsafe_allow_html=True)
                     
-                    # 🧪 ZERO-REFRESH BROWSER FORM PASS (ELIMINATES ALL COOLDOWN FLICKERS)
-                    if selected == ALL_LABEL:
-                        if st.checkbox("Select asset", key=f"root_box_{key}", value=False):
-                            st.toast("📁 Please select a listing folder from the dropdown menu first!", icon="⚠️")
-                            st.rerun()
+                    # Stamping clean tracking number badge directly above image tile
+                    st.markdown(f"<div class='img-index-badge'>#{current_number}</div>", unsafe_allow_html=True)
+                    
+                    if b64:
+                        st.markdown(f"<img src='data:image/jpeg;base64,{b64}' style='width:100%;border-radius:6px;display:block;{border_style}'>", unsafe_allow_html=True)
                     else:
-                        # Value states update internally in memory without flashing or refreshing the page
-                        st.checkbox("Select asset", key=f"v_cb_{key}")
+                        st.markdown(f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;text-align:center;color:#999;font-size:0.8rem;{border_style}'>⚠ {filename}</div>", unsafe_allow_html=True)
+                    
+                    st.markdown(f"<div style='font-size:0.75rem; color:#666; margin-top:0.3rem; word-break:break-all;'>{filename}</div>", unsafe_allow_html=True)
 
-                    with st.expander(f"🔍 Actions ({filename})"):
+                    with st.expander("🔍 View Individual Actions"):
                         meta = next((o for o in objects if o["Key"] == key), {})
                         st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
                         dl = presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
-                        st.markdown(f"[Link (1h)]({dl})")
+                        st.markdown(f"[Presigned Link (1h)]({dl})")
                         st.download_button("Download individual file", data=download_object(key), file_name=filename, key=f"dl_single_{key}")
                         if st.button("Delete individual asset", key=f"del_single_{key}", type="secondary"):
                             delete_object(key)
-                            st.session_state[f"v_cb_{key}"] = False
-                            st.success("Deleted.")
+                            st.success("Deleted asset.")
                             st.rerun()
 
     if other_keys:
