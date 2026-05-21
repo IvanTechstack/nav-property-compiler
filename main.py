@@ -535,7 +535,7 @@ def main() -> None:
         st.sidebar.markdown("<div style='text-align:center;font-size:3rem'>🧭</div>", unsafe_allow_html=True)
 
     st.sidebar.markdown(f"<h2 style='color:{CRIMSON};margin-top:0.25rem;text-align:center;font-size:1.15rem'>{APP_NAME}</h2>", unsafe_allow_html=True)
-    st.sidebar.sidebar_divider = st.sidebar.markdown("<hr class='sidebar-divider'>", unsafe_allow_html=True)
+    st.sidebar.markdown("<hr class='sidebar-divider'>", unsafe_allow_html=True)
 
     page = st.sidebar.radio("Navigate", ["Browse bucket", "Upload Images", "Settings"], label_visibility="collapsed")
 
