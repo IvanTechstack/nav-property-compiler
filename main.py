@@ -14,7 +14,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants & Color Palette
 # ---------------------------------------------------------------------------
 
 APP_NAME = "Ivan's Image Optimizer"
@@ -40,7 +40,6 @@ SUPPORTED_MIME = {
 }
 GALLERY_TYPES = ["jpg", "jpeg", "png", "webp", "tiff", "bmp"]  # no gif
 
-# Corporate palette
 CRIMSON = "#990000"
 SLATE = "#708090"
 BLACK = "#0d0d0d"
@@ -59,7 +58,7 @@ R2_CORS_CONFIG = [
 
 
 # ---------------------------------------------------------------------------
-# R2 client
+# R2 Client Initializer
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -108,7 +107,7 @@ def get_r2_client():
 
 
 # ---------------------------------------------------------------------------
-# Image processing
+# Image Optimization Engines
 # ---------------------------------------------------------------------------
 
 def _to_web_mode(img: Image.Image, fmt: str) -> Image.Image:
@@ -249,8 +248,18 @@ def _inject_css() -> None:
 """, unsafe_allow_html=True)
 
 
+def _col_header(label: str, spec: str, color: str) -> None:
+    st.markdown(
+        f"<div style='border-top:3px solid {color};padding-top:0.6rem;margin-bottom:0.6rem'>"
+        f"<span style='font-weight:700;font-size:0.95rem;color:{color}'>{label}</span><br>"
+        f"<span style='font-size:0.75rem;color:#888'>{spec}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Browse Workspace
+# Media Repository Page
 # ---------------------------------------------------------------------------
 
 def page_browse() -> None:
@@ -281,16 +290,6 @@ def page_browse() -> None:
     ALL_LABEL = "— All properties —"
     selected = st.selectbox("📁 Property folder", [ALL_LABEL] + prop_folders, key="browse_folder")
 
-    # Persistent Storage Sync Setup
-    if "selected_images" not in st.session_state:
-        st.session_state.selected_images = {}
-    if "last_active_folder" not in st.session_state:
-        st.session_state.last_active_folder = ALL_LABEL
-
-    if st.session_state.last_active_folder != selected:
-        st.session_state.selected_images = {}
-        st.session_state.last_active_folder = selected
-
     objects = all_objects if selected == ALL_LABEL else [o for o in all_objects if o["Key"].startswith(selected)]
     
     if not objects:
@@ -301,75 +300,106 @@ def page_browse() -> None:
     image_keys = [o["Key"] for o in objects if _is_image(o["Key"])]
     other_keys = [o["Key"] for o in objects if not _is_image(o["Key"])]
 
-    # 📁 GLOBAL ACTION CONTROLS HEADER LAYER (STAYS PERFECTLY IN-LINE UPPER RIGHT)
-    hdr_left, hdr_right = st.columns([4, 4])
+    # 📁 SYNC COMMAND CONTROL HEADER (CLEAN UPPER-RIGHT PLACEMENT)
+    hdr_left, hdr_right = st.columns([5, 3])
     with hdr_left:
         st.subheader("Images Directory Grid")
     with hdr_right:
         if selected == ALL_LABEL:
             st.markdown("<div style='text-align: right; margin-top: 0.6rem; color: #708090; font-size: 0.85rem; font-weight: 600;'>ℹ️ Select a folder to unlock bulk tools</div>", unsafe_allow_html=True)
-        elif image_keys:
-            # Gather selections safely from live session cache states
-            staged_downloads = [k for k in image_keys if st.session_state.selected_images.get(k, False)]
-            
-            if staged_downloads:
-                try:
-                    zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                        for key in staged_downloads:
-                            zip_file.writestr(key.split("/")[-1], download_object(key))
-                    zip_buffer.seek(0)
-                    
-                    # High-speed download layout pipeline shortcut button
-                    st.download_button(
-                        label=f"📥 Download Photos ({len(staged_downloads)})",
-                        data=zip_buffer.getvalue(),
-                        file_name=f"{selected.split('/')[-2] if len(selected.split('/')) >= 3 else 'package'}-media.zip",
-                        mime="application/zip",
-                        key="master_zip_trigger"
-                    )
-                except Exception as ex:
-                    st.error(f"ZIP Compilation error: {ex}")
-            else:
-                st.markdown("<div style='text-align: right; margin-top: 0.6rem; color: #990000; font-size: 0.85rem; font-weight: 700;'>📁 Select images below to download</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='text-align: right; margin-top: 0.4rem; color: {CRIMSON}; font-size: 0.9rem; font-weight: 700;'>📁 Active Folder Mode</div>", unsafe_allow_html=True)
 
-    # Global Select/Clear Buttons
+    # ⚡ EXPLICIT SELECTION FORM CONTAINER (ELIMINATES CONSTANT RUNTIME FLASHING)
     if selected != ALL_LABEL and image_keys:
-        st.markdown("<br>", unsafe_allow_html=True)
-        ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([1.5, 1.5, 2, 2])
-        with ctrl_col1:
-            if st.button("✅ Select All", use_container_width=True):
-                for k in image_keys:
-                    st.session_state.selected_images[k] = True
-                st.rerun()
-        with ctrl_col2:
-            if st.button("❌ Clear All", use_container_width=True):
-                st.session_state.selected_images = {}
-                st.rerun()
-        with ctrl_col3:
-            staged_deletes = [k for k in image_keys if st.session_state.selected_images.get(k, False)]
-            if staged_deletes:
-                if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
-                    with st.spinner("Deleting selection…"):
-                        for k in staged_deletes:
-                            delete_object(k)
-                            if k in st.session_state.selected_images:
-                                del st.session_state.selected_images[k]
+        st.markdown("### 🛠️ Bulk Actions Command Center")
+        
+        # Instantiate localized toggle memory keys inside runtime context
+        with st.form(key="bulk_management_dashboard_form"):
+            ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 2, 4])
+            with ctrl_col1:
+                select_all = st.form_submit_button("✅ Select All Images", use_container_width=True)
+            with ctrl_col2:
+                clear_all = st.form_submit_button("❌ Clear All Selections", use_container_width=True)
+            with ctrl_col3:
+                st.markdown("<div style='margin-top: 0.4rem; color: #666; font-size: 0.8rem;'>💡 Choose global actions or toggle asset checkboxes down below then execute.</div>", unsafe_allow_html=True)
+
+            # Draw smooth action buttons inside form context layout row
+            act_col1, act_col2, act_col3 = st.columns([3, 2.5, 2.5])
+            
+            # Map values out of layout switches safely
+            toggled_keys = []
+            if not clear_all:
+                for key in image_keys:
+                    # Sync default initial rules
+                    init_val = True if select_all else st.session_state.get(f"cache_box_{key}", False)
+                    if init_val:
+                        toggled_keys.append(key)
+
+            with act_col1:
+                if toggled_keys:
+                    try:
+                        zip_io = io.BytesIO()
+                        with zipfile.ZipFile(zip_io, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                            for key in toggled_keys:
+                                zip_file.writestr(key.split("/")[-1], download_object(key))
+                        zip_io.seek(0)
+                        
+                        st.download_button(
+                            label=f"📥 Download Selected ({len(toggled_keys)})",
+                            data=zip_io.getvalue(),
+                            file_name=f"{selected.split('/')[-2] if len(selected.split('/')) >= 3 else 'package'}-selection.zip",
+                            mime="application/zip",
+                            use_container_width=True,
+                            type="primary",
+                            key="process_zip_package_download"
+                        )
+                    except Exception as e:
+                        st.error(f"Package engine failure: {e}")
+                else:
+                    st.form_submit_button("📥 Download Selected (0)", disabled=True, use_container_width=True)
+
+            with act_col2:
+                confirm_delete = st.form_submit_button("🗑️ Delete Selected", use_container_width=True)
+                if confirm_delete and toggled_keys:
+                    with st.spinner("Deleting selections…"):
+                        for key in toggled_keys:
+                            delete_object(key)
+                            st.session_state[f"cache_box_{key}"] = False
                     st.success("Assets cleared.")
                     st.rerun()
-        with ctrl_col4:
-            if st.button("🚨 Purge Folder", type="secondary", use_container_width=True):
-                with st.spinner("Wiping folder directory…"):
-                    for k in [o["Key"] for o in objects]:
-                        delete_object(k)
-                st.session_state.selected_images = {}
-                st.success("Folder purged.")
-                st.rerun()
 
-    st.markdown("---")
+            with act_col3:
+                confirm_purge = st.form_submit_button("🚨 Purge Folder", use_container_width=True)
+                if confirm_purge:
+                    with st.spinner("Purging folder…"):
+                        for key in [o["Key"] for o in objects]:
+                            delete_object(key)
+                            st.session_state[f"cache_box_{key}"] = False
+                    st.success("Folder removed.")
+                    st.rerun()
 
-    # ── Render Zero-Flicker Grid ──────────────────────────────────────────
-    if image_keys:
+            st.markdown("---")
+
+            # ── Render Non-Flickering Selection Image Matrix ───────────────────
+            cols_per_row = 3
+            for row_start in range(0, len(image_keys), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for col, key in zip(cols, image_keys[row_start: row_start + cols_per_row]):
+                    with col:
+                        b64 = _thumbnail_b64(key)
+                        filename = key.split("/")[-1]
+                        if b64:
+                            st.markdown(f"<img src='data:image/jpeg;base64,{b64}' style='width:100%;border-radius:6px;display:block;'>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;text-align:center;color:#999;font-size:0.8rem'>⚠ {filename}</div>", unsafe_allow_html=True)
+                        
+                        # Read initialization setup values directly inside the safe block
+                        box_default = True if select_all else (False if clear_all else st.session_state.get(f"cache_box_{key}", False))
+                        st.session_state[f"cache_box_{key}"] = st.checkbox("Select asset", key=f"cache_box_{key}", value=box_default)
+
+    # Fallback layout view logic if root view is chosen
+    elif selected == ALL_LABEL and image_keys:
         cols_per_row = 3
         for row_start in range(0, len(image_keys), cols_per_row):
             cols = st.columns(cols_per_row)
@@ -382,30 +412,26 @@ def page_browse() -> None:
                     else:
                         st.markdown(f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;text-align:center;color:#999;font-size:0.8rem'>⚠ {filename}</div>", unsafe_allow_html=True)
                     
-                    # Direct Cache Binding Execution (Stops the lag loops completely)
-                    if selected == ALL_LABEL:
-                        if st.checkbox("Select asset", key=f"v_cb_{key}", value=False):
-                            st.toast("📁 Please select a listing folder first!", icon="⚠️")
-                            st.rerun()
-                    else:
-                        # Checks directly edit state dictionary without executing blocking loops
-                        box_state = st.checkbox("Select asset", key=f"v_cb_{key}", value=st.session_state.selected_images.get(key, False))
-                        if box_state != st.session_state.selected_images.get(key, False):
-                            st.session_state.selected_images[key] = box_state
-                            st.rerun()
+                    if st.checkbox("Select asset", key=f"root_view_disabled_box_{key}", value=False):
+                        st.toast("📁 Please select a valid property listing folder first!", icon="⚠️")
+                        st.rerun()
 
-                    with st.expander(f"🔍 Actions ({filename})"):
-                        meta = next((o for o in objects if o["Key"] == key), {})
-                        st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
-                        dl = presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
-                        st.markdown(f"[Link (1h)]({dl})")
-                        st.download_button("Download single file", data=download_object(key), file_name=filename, key=f"dl_{key}")
-                        if st.button("Delete single asset", key=f"del_{key}", type="secondary"):
-                            delete_object(key)
-                            if key in st.session_state.selected_images:
-                                del st.session_state.selected_images[key]
-                            st.success("Deleted.")
-                            st.rerun()
+    # Individual action expanders row render mapping
+    if image_keys:
+        st.markdown("<br><h4>🔍 Individual Asset Controls Map</h4>", unsafe_allow_html=True)
+        for key in image_keys:
+            filename = key.split("/")[-1]
+            with st.expander(f"📄 Manage Single File: {filename}"):
+                meta = next((o for o in objects if o["Key"] == key), {})
+                st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
+                dl = presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
+                st.markdown(f"[Presigned Link (1h)]({dl})")
+                st.download_button("Download individual file", data=download_object(key), file_name=filename, key=f"dl_single_{key}")
+                if st.button("Delete individual asset", key=f"del_single_{key}", type="secondary"):
+                    delete_object(key)
+                    st.session_state[f"cache_box_{key}"] = False
+                    st.success("Asset deleted successfully.")
+                    st.rerun()
 
     if other_keys:
         st.subheader("Other files")
@@ -474,7 +500,7 @@ def page_upload() -> None:
         st.markdown(f"<span style='font-weight:600;color:{CRIMSON}'>Featured Banner</span>", unsafe_allow_html=True)
         try:
             data, _ = process_banner(banner_file.read(), quality=banner_quality)
-            upload_object(f"properties/{prefix}/{prefix}-banner.webp", data, "image/web")
+            upload_object(f"properties/{prefix}/{prefix}-banner.webp", data, "image/webp")
             st.success(f"✓ `{prefix}-banner.webp` — {_fmt_bytes(len(data))}")
             total_ok += 1
         except Exception as exc:
