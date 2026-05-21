@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import zipfile
 from dataclasses import dataclass
 
 import boto3
@@ -324,7 +325,7 @@ def _col_header(label: str, spec: str, color: str) -> None:
 def page_browse() -> None:
     st.header("Browse bucket")
 
-    # ── Single fetch: derive folder list + support filtering in one pass ───
+    # Fetch layout pass
     with st.spinner("Loading bucket…"):
         try:
             all_objects = list_objects(prefix="")
@@ -336,7 +337,7 @@ def page_browse() -> None:
         st.info("Bucket is empty.")
         return
 
-    # Derive sorted unique property folders (properties/<name>/)
+    # Derive unique property folders
     seen_folders: set[str] = set()
     prop_folders: list[str] = []
     for o in all_objects:
@@ -348,7 +349,7 @@ def page_browse() -> None:
                 prop_folders.append(f)
     prop_folders.sort()
 
-    # ── Folder selector ────────────────────────────────────────────────────
+    # Selector setup
     ALL_LABEL = "— All properties —"
     folder_options = [ALL_LABEL] + prop_folders
     selected = st.selectbox(
@@ -375,8 +376,89 @@ def page_browse() -> None:
     image_keys = [o["Key"] for o in objects if _is_image(o["Key"])]
     other_keys = [o["Key"] for o in objects if not _is_image(o["Key"])]
 
+    # 🛠️ NEW COMMAND CENTER DASHBOARD (PLUGGED DIRECTLY AT TOP)
     if image_keys:
-        st.subheader("Images")
+        st.markdown("### 🛠️ Bulk Actions Command Center")
+        
+        # Grid controls row
+        ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1.5, 1.5, 5])
+        
+        # Tracking selection map inside local container state
+        if "selected_images" not in st.session_state:
+            st.session_state.selected_images = {}
+
+        with ctrl_col1:
+            if st.button("✅ Select All Images", use_container_width=True):
+                for k in image_keys:
+                    st.session_state.selected_images[k] = True
+                st.rerun()
+
+        with ctrl_col2:
+            if st.button("❌ Clear All Selections", use_container_width=True):
+                st.session_state.selected_images = {}
+                st.rerun()
+
+        # Isolate exactly what is checked right now
+        checked_keys = [k for k in image_keys if st.session_state.selected_images.get(k, False)]
+
+        # Dynamic Execution Action Banner
+        if checked_keys:
+            st.markdown(f"**⚡ Staged Actions Panel:** `{len(checked_keys)}` image(s) selected.")
+            action_col1, action_col2, action_col3, _ = st.columns([2, 2, 2, 2])
+            
+            with action_col1:
+                # 📥 RAM ZIP GENERATOR BLOCK
+                with st.spinner("Bundling ZIP package…"):
+                    try:
+                        zip_buffer = io.BytesIO()
+                        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                            for idx, key in enumerate(checked_keys):
+                                file_bytes = download_object(key)
+                                file_name = key.split("/")[-1]
+                                zip_file.writestr(file_name, file_bytes)
+                        zip_buffer.seek(0)
+                        
+                        st.download_button(
+                            label="📥 Download Selected (.zip)",
+                            data=zip_buffer,
+                            file_name=f"media-package-selection.zip",
+                            mime="application/zip",
+                            use_container_width=True,
+                            type="primary"
+                        )
+                    except Exception as e:
+                        st.error(f"ZIP error: {e}")
+
+            with action_col2:
+                if st.button("🗑️ Delete Selected Assets", type="secondary", use_container_width=True):
+                    with st.spinner("Executing bulk delete…"):
+                        for key in checked_keys:
+                            delete_object(key)
+                            if key in st.session_state.selected_images:
+                                del st.session_state.selected_images[key]
+                    st.success(f"Purged {len(checked_keys)} files successfully.")
+                    st.rerun()
+            
+            with action_col3:
+                # Target check if isolated folder selection is active
+                if selected != ALL_LABEL:
+                    if st.button("🚨 Purge Entire Property Folder", type="secondary", use_container_width=True, help="Permanently wipes out this entire directory route from R2 storage."):
+                        with st.spinner("Wiping directory completely…"):
+                            all_folder_files = [o["Key"] for o in objects]
+                            for key in all_folder_files:
+                                delete_object(key)
+                                if key in st.session_state.selected_images:
+                                    del st.session_state.selected_images[key]
+                        st.success(f"Directory {selected} completely removed.")
+                        st.rerun()
+        else:
+            st.info("💡 Check the select boxes directly underneath the image cells below to stage batch downloads or deletions.")
+
+        st.markdown("---")
+
+    # ── Render Image Grid with integrated checkboxes ───────────────────────
+    if image_keys:
+        st.subheader("Images Directory Grid")
         cols_per_row = 3
         for row_start in range(0, len(image_keys), cols_per_row):
             cols = st.columns(cols_per_row)
@@ -390,7 +472,6 @@ def page_browse() -> None:
                             f"style='width:100%;border-radius:6px;display:block;'>",
                             unsafe_allow_html=True,
                         )
-                        st.caption(filename)
                     else:
                         st.markdown(
                             f"<div style='background:#f5f5f5;border-radius:6px;padding:2rem;"
@@ -398,20 +479,33 @@ def page_browse() -> None:
                             f"⚠ {filename}</div>",
                             unsafe_allow_html=True,
                         )
-                    with st.expander("Actions"):
+                    
+                    # Core individual toggle selector
+                    is_checked = st.checkbox(
+                        f"Select asset", 
+                        key=f"cb_{key}", 
+                        value=st.session_state.selected_images.get(key, False),
+                        label_visibility="visible"
+                    )
+                    st.session_state.selected_images[key] = is_checked
+                    
+                    # Individual item details expander
+                    with st.expander(f"🔍 View Actions ({filename})"):
                         meta = next((o for o in objects if o["Key"] == key), {})
                         st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
                         st.write(f"Modified: {meta.get('LastModified', '—')}")
                         dl = presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
                         st.markdown(f"[Presigned link (1h)]({dl})")
                         st.download_button(
-                            "Download original",
+                            "Download single file",
                             data=download_object(key),
-                            file_name=key.split("/")[-1],
+                            file_name=filename,
                             key=f"dl_{key}",
                         )
-                        if st.button("Delete", key=f"del_{key}", type="secondary"):
+                        if st.button("Delete single asset", key=f"del_{key}", type="secondary"):
                             delete_object(key)
+                            if key in st.session_state.selected_images:
+                                del st.session_state.selected_images[key]
                             st.success(f"Deleted {key}")
                             st.rerun()
 
