@@ -45,7 +45,7 @@ SLATE = "#708090"
 BLACK = "#0d0d0d"
 
 # Path to Ivan's avatar image (workspace root)
-_IVAN_IMG_PATH = "ivan.png"
+_IVAN_IMG_PATH = "/home/runner/workspace/Ivan .png"
 
 # CORS configuration block for Cloudflare R2
 R2_CORS_CONFIG = [
