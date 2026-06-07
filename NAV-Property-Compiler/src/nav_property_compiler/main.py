@@ -610,12 +610,12 @@ def page_upload() -> None:
 
 def page_settings() -> None:
     st.header("Connection settings")
-    st.info("Credentials are loaded from environment variables — edit them in the Replit Secrets vault.")
+    st.info("Credentials are loaded from Streamlit secrets (Streamlit Cloud) or environment variables (Replit/local).")
 
     vars_to_check = ["R2_ENDPOINT_URL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]
     rows_md = ["| Variable | Status |", "|---|:---:|"]
     for var in vars_to_check:
-        status = "✅ Set" if os.environ.get(var, "") else "❌ Missing"
+        status = "✅ Set" if _get_secret(var) else "❌ Missing"
         rows_md.append(f"| `{var}` | {status} |")
     st.markdown("\n".join(rows_md))
 
