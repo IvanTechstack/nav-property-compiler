@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import json
 import os
+import re
 from dataclasses import dataclass
 
 import boto3
@@ -228,6 +230,19 @@ def presigned_url(key: str, expires_in: int = DOWNLOAD_EXPIRY) -> str:
     )
 
 
+def _next_gallery_seq(prefix: str) -> int:
+    """Return the next available gallery sequence number for the given property prefix."""
+    existing = list_objects(prefix=f"properties/{prefix}/")
+    max_seq = 0
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)\.webp$")
+    for obj in existing:
+        fname = obj["Key"].split("/")[-1]
+        m = pattern.match(fname)
+        if m:
+            max_seq = max(max_seq, int(m.group(1)))
+    return max_seq + 1
+
+
 # ---------------------------------------------------------------------------
 # UI helpers
 # ---------------------------------------------------------------------------
@@ -242,6 +257,11 @@ def _fmt_bytes(n: int) -> str:
 
 def _is_image(key: str) -> bool:
     return key.lower().rsplit(".", 1)[-1] in SUPPORTED_UPLOAD_TYPES
+
+
+def _is_featured(key: str) -> bool:
+    """Return True if the filename contains the 'featured_' protection prefix."""
+    return "featured_" in key.split("/")[-1]
 
 
 def _thumbnail_b64(key: str, max_w: int = 400) -> str | None:
@@ -302,6 +322,18 @@ def _inject_css() -> None:
         border-radius: 8px;
         padding: 1rem;
     }}
+    /* Featured badge */
+    .featured-badge {{
+        display:inline-block;
+        background:{CRIMSON};
+        color:#fff;
+        font-size:0.65rem;
+        font-weight:700;
+        padding:1px 6px;
+        border-radius:3px;
+        letter-spacing:0.04em;
+        margin-bottom:2px;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -324,7 +356,7 @@ def _col_header(label: str, spec: str, color: str) -> None:
 def page_browse() -> None:
     st.header("Browse bucket")
 
-    # ── Single fetch: derive folder list + support filtering in one pass ───
+    # ── Single fetch ────────────────────────────────────────────────────────
     with st.spinner("Loading bucket…"):
         try:
             all_objects = list_objects(prefix="")
@@ -336,7 +368,7 @@ def page_browse() -> None:
         st.info("Bucket is empty.")
         return
 
-    # Derive sorted unique property folders (properties/<name>/)
+    # Build sorted unique property folder list
     seen_folders: set[str] = set()
     prop_folders: list[str] = []
     for o in all_objects:
@@ -348,15 +380,28 @@ def page_browse() -> None:
                 prop_folders.append(f)
     prop_folders.sort()
 
-    # ── Folder selector ────────────────────────────────────────────────────
-    ALL_LABEL = "— All properties —"
-    folder_options = [ALL_LABEL] + prop_folders
-    selected = st.selectbox(
-        "📁 Property folder",
-        folder_options,
-        key="browse_folder",
-        help="Select a property to view only its assets, or leave on 'All' for the full bucket.",
-    )
+    # ── 1. Searchable folder selector ──────────────────────────────────────
+    search_col, folder_col = st.columns([1, 3])
+    with search_col:
+        kw = st.text_input(
+            "🔍 Filter",
+            placeholder="e.g. Windsor",
+            key="browse_search",
+            label_visibility="collapsed",
+        )
+    with folder_col:
+        matched = (
+            [f for f in prop_folders if kw.strip().lower() in f.lower()]
+            if kw.strip() else prop_folders
+        )
+        ALL_LABEL = "— All properties —"
+        folder_options = [ALL_LABEL] + matched
+        selected = st.selectbox(
+            "📁 Property folder",
+            folder_options,
+            key="browse_folder",
+            help="Type a keyword on the left to filter, then pick a folder.",
+        )
 
     objects = (
         all_objects
@@ -368,26 +413,71 @@ def page_browse() -> None:
         st.info("No objects found in this folder.")
         return
 
-    objects.sort(key=lambda o: o.get("LastModified", ""), reverse=True)
+    # Build lookup for metadata
+    meta_by_key = {o["Key"]: o for o in objects}
     total_size = sum(o.get("Size", 0) for o in objects)
     st.caption(f"{len(objects)} objects · {_fmt_bytes(total_size)} total")
 
     image_keys = [o["Key"] for o in objects if _is_image(o["Key"])]
     other_keys = [o["Key"] for o in objects if not _is_image(o["Key"])]
 
+    # ── 2. Gallery sort & reverse controls ─────────────────────────────────
     if image_keys:
+        ctrl_left, ctrl_right = st.columns([4, 1])
+        with ctrl_left:
+            sort_mode = st.radio(
+                "Sort",
+                ["Filename A→Z", "Filename Z→A", "Date ↓", "Date ↑"],
+                horizontal=True,
+                key="browse_sort",
+                label_visibility="collapsed",
+            )
+        with ctrl_right:
+            if st.button("↕ Reverse Order", key="browse_rev_btn", use_container_width=True):
+                st.session_state["browse_reversed"] = not st.session_state.get("browse_reversed", False)
+
+        # Apply sort
+        if sort_mode == "Filename A→Z":
+            image_keys.sort()
+        elif sort_mode == "Filename Z→A":
+            image_keys.sort(reverse=True)
+        elif sort_mode == "Date ↓":
+            image_keys.sort(
+                key=lambda k: str(meta_by_key[k].get("LastModified", "")),
+                reverse=True,
+            )
+        elif sort_mode == "Date ↑":
+            image_keys.sort(
+                key=lambda k: str(meta_by_key[k].get("LastModified", "")),
+            )
+
+        if st.session_state.get("browse_reversed", False):
+            image_keys.reverse()
+            st.caption("↕ Display order reversed")
+
+        # ── 3. Thumbnail grid ───────────────────────────────────────────────
         st.subheader("Images")
         cols_per_row = 3
         for row_start in range(0, len(image_keys), cols_per_row):
             cols = st.columns(cols_per_row)
             for col, key in zip(cols, image_keys[row_start: row_start + cols_per_row]):
                 with col:
+                    featured = _is_featured(key)
                     b64 = _thumbnail_b64(key)
                     filename = key.split("/")[-1]
+
+                    if featured:
+                        st.markdown(
+                            "<span class='featured-badge'>🔒 FEATURED</span>",
+                            unsafe_allow_html=True,
+                        )
+
                     if b64:
+                        border_color = CRIMSON if featured else "#e0e0e0"
                         st.markdown(
                             f"<img src='data:image/jpeg;base64,{b64}' "
-                            f"style='width:100%;border-radius:6px;display:block;'>",
+                            f"style='width:100%;border-radius:6px;display:block;"
+                            f"border:2px solid {border_color};'>",
                             unsafe_allow_html=True,
                         )
                         st.caption(filename)
@@ -398,8 +488,9 @@ def page_browse() -> None:
                             f"⚠ {filename}</div>",
                             unsafe_allow_html=True,
                         )
+
                     with st.expander("Actions"):
-                        meta = next((o for o in objects if o["Key"] == key), {})
+                        meta = meta_by_key.get(key, {})
                         st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
                         st.write(f"Modified: {meta.get('LastModified', '—')}")
                         dl = presigned_url(key, expires_in=DOWNLOAD_EXPIRY)
@@ -407,18 +498,88 @@ def page_browse() -> None:
                         st.download_button(
                             "Download original",
                             data=download_object(key),
-                            file_name=key.split("/")[-1],
+                            file_name=filename,
                             key=f"dl_{key}",
                         )
-                        if st.button("Delete", key=f"del_{key}", type="secondary"):
-                            delete_object(key)
-                            st.success(f"Deleted {key}")
+                        if featured:
+                            st.caption("🔒 Featured asset — protected from deletion.")
+                        else:
+                            if st.button("Delete", key=f"del_{key}", type="secondary"):
+                                delete_object(key)
+                                st.success(f"Deleted {filename}")
+                                st.rerun()
+
+        # ── 4. Bulk Actions ─────────────────────────────────────────────────
+        if selected != ALL_LABEL:
+            st.markdown("---")
+            st.subheader("⚡ Bulk Actions")
+
+            deletable = [k for k in image_keys if not _is_featured(k)]
+            protected = [k for k in image_keys if _is_featured(k)]
+
+            if not deletable:
+                st.info("All images in this folder are featured-protected.")
+            else:
+                # Multi-select deletion
+                to_delete = st.multiselect(
+                    "Select specific files to delete",
+                    options=deletable,
+                    format_func=lambda k: k.split("/")[-1],
+                    key="bulk_multiselect",
+                )
+
+                btn_col1, btn_col2 = st.columns(2)
+
+                with btn_col1:
+                    if to_delete:
+                        if st.button(
+                            f"🗑 Delete {len(to_delete)} selected file{'s' if len(to_delete) != 1 else ''}",
+                            key="bulk_delete_selected",
+                            type="primary",
+                        ):
+                            for k in to_delete:
+                                delete_object(k)
+                            st.success(f"Deleted {len(to_delete)} file(s).")
+                            st.rerun()
+
+                with btn_col2:
+                    folder_label = selected.split("/")[1] if "/" in selected else selected
+                    n_del = len(deletable)
+                    n_prot = len(protected)
+                    prot_note = f" · {n_prot} featured asset(s) protected" if n_prot else ""
+                    if st.button(
+                        f"🗑 Clear folder — {n_del} file{'s' if n_del != 1 else ''}{prot_note}",
+                        key="bulk_delete_folder",
+                        type="secondary",
+                    ):
+                        st.session_state["confirm_folder_delete"] = selected
+
+                # Confirmation dialog for folder clear
+                if st.session_state.get("confirm_folder_delete") == selected:
+                    st.warning(
+                        f"⚠ This will permanently delete **{n_del} non-featured file(s)** "
+                        f"from `{folder_label}/`. Featured assets are preserved. Proceed?"
+                    )
+                    ok_col, cancel_col = st.columns(2)
+                    with ok_col:
+                        if st.button("✅ Yes, clear folder", key="confirm_clear_yes", type="primary"):
+                            for k in deletable:
+                                delete_object(k)
+                            st.success(
+                                f"Cleared {n_del} file(s) from `{folder_label}/`."
+                                + (f" {n_prot} featured asset(s) preserved." if n_prot else "")
+                            )
+                            st.session_state.pop("confirm_folder_delete", None)
+                            st.rerun()
+                    with cancel_col:
+                        if st.button("Cancel", key="confirm_clear_cancel"):
+                            st.session_state.pop("confirm_folder_delete", None)
                             st.rerun()
 
     if other_keys:
         st.subheader("Other files")
         for key in other_keys:
-            meta = next((o for o in objects if o["Key"] == key), {})
+            meta = meta_by_key.get(key, {})
             with st.expander(key):
                 st.write(f"Size: {_fmt_bytes(meta.get('Size', 0))}")
                 st.write(f"Modified: {meta.get('LastModified', '—')}")
@@ -443,20 +604,20 @@ def page_upload() -> None:
     if prefix:
         st.caption(
             f"Upload path: **`properties/{prefix}/`**  ·  "
-            f"Files: `{prefix}-01.webp` … `{prefix}-banner.webp` · `{prefix}-story-cover.[ext]`"
+            f"Files: `{prefix}-01.webp` … `featured_{prefix}-banner.webp` · `{prefix}-story-cover.[ext]`"
         )
     else:
         st.info("⬆ Enter a Property Name or ID above, then stage files in any column.", icon=None)
 
     st.markdown("<div style='margin:0.75rem 0 0.25rem 0'></div>", unsafe_allow_html=True)
 
-    # ── Three staging columns (no per-column submit buttons) ───────────────
+    # ── Three staging columns ───────────────────────────────────────────────
     col_gallery, col_banner, col_story = st.columns(3, gap="medium")
 
     with col_gallery:
         _col_header(
             "Portfolio Gallery",
-            f"Max {GALLERY_MAX_HEIGHT}px height · WebP · sequential naming",
+            f"Max {GALLERY_MAX_HEIGHT}px height · WebP · sequential naming (continues existing)",
             SLATE,
         )
         gallery_files = st.file_uploader(
@@ -468,12 +629,12 @@ def page_upload() -> None:
         )
         gallery_quality = st.slider("Quality", 60, 100, DEFAULT_QUALITY, key="q_gallery")
         if gallery_files:
-            st.caption(f"{len(gallery_files)} file(s) staged → `{prefix or '<prefix>'}-01.webp` …")
+            st.caption(f"{len(gallery_files)} file(s) staged — sequence continues from existing folder assets")
 
     with col_banner:
         _col_header(
             "Featured Banner",
-            f"Exactly {BANNER_WIDTH}px wide · WebP · no crop",
+            f"Exactly {BANNER_WIDTH}px wide · WebP · saved as featured_*",
             CRIMSON,
         )
         banner_file = st.file_uploader(
@@ -485,7 +646,7 @@ def page_upload() -> None:
         )
         banner_quality = st.slider("Quality", 60, 100, DEFAULT_QUALITY, key="q_banner")
         if banner_file:
-            st.caption(f"Staged → `{prefix or '<prefix>'}-banner.webp`")
+            st.caption(f"Staged → `featured_{prefix or '<prefix>'}-banner.webp` 🔒")
 
     with col_story:
         _col_header(
@@ -534,19 +695,22 @@ def page_upload() -> None:
     total_ok = 0
     total_err = 0
 
-    # ── Gallery ────────────────────────────────────────────────────────────
+    # ── Gallery — continues existing folder sequence ────────────────────────
     if gallery_files:
         st.markdown(
             f"<span style='font-weight:600;color:{SLATE}'>Portfolio Gallery</span>",
             unsafe_allow_html=True,
         )
+        with st.spinner("Checking existing sequence in folder…"):
+            start_seq = _next_gallery_seq(prefix)
+
         prog = st.progress(0, text="Processing gallery…")
         for idx, f in enumerate(gallery_files):
             prog.progress(idx / len(gallery_files), text=f"{f.name}…")
             raw = f.read()
             try:
                 data, _ = process_gallery(raw, quality=gallery_quality)
-                seq = str(idx + 1).zfill(2)
+                seq = str(start_seq + idx).zfill(2)
                 r2_key = f"properties/{prefix}/{prefix}-{seq}.webp"
                 upload_object(r2_key, data, "image/webp")
                 savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
@@ -556,8 +720,10 @@ def page_upload() -> None:
                 st.error(f"✗ {f.name}: {exc}")
                 total_err += 1
         prog.progress(1.0, text="Gallery done")
+        if start_seq > 1:
+            st.caption(f"ℹ Continued from existing sequence — started at `{prefix}-{str(start_seq).zfill(2)}.webp`")
 
-    # ── Banner ─────────────────────────────────────────────────────────────
+    # ── Banner — saved with featured_ prefix for protection ───────────────
     if banner_file:
         st.markdown(
             f"<span style='font-weight:600;color:{CRIMSON}'>Featured Banner</span>",
@@ -567,10 +733,13 @@ def page_upload() -> None:
             try:
                 raw = banner_file.read()
                 data, _ = process_banner(raw, quality=banner_quality)
-                r2_key = f"properties/{prefix}/{prefix}-banner.webp"
+                r2_key = f"properties/{prefix}/featured_{prefix}-banner.webp"
                 upload_object(r2_key, data, "image/webp")
                 savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
-                st.success(f"✓ `{prefix}-banner.webp` — {_fmt_bytes(len(data))} ({savings:+.0f}%)")
+                st.success(
+                    f"✓ `featured_{prefix}-banner.webp` — "
+                    f"{_fmt_bytes(len(data))} ({savings:+.0f}%) 🔒 Protected"
+                )
                 total_ok += 1
             except Exception as exc:
                 st.error(f"✗ {banner_file.name}: {exc}")
@@ -637,7 +806,6 @@ def page_settings() -> None:
         "Add this JSON block to your Cloudflare R2 bucket **CORS policy** "
         "(R2 → Bucket → Settings → CORS) to allow browser-direct thumbnail fetches:"
     )
-    import json
     st.code(json.dumps(R2_CORS_CONFIG, indent=2), language="json")
     st.caption(
         "These rules allow any origin to make GET/HEAD requests (presigned URL fetches). "
@@ -678,7 +846,6 @@ def main() -> None:
         f"{APP_NAME}</h2>",
         unsafe_allow_html=True,
     )
-    # Soft gray divider — branding above, navigation below
     st.sidebar.markdown(
         "<hr class='sidebar-divider'>",
         unsafe_allow_html=True,
