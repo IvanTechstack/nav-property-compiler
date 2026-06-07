@@ -1,4 +1,4 @@
-fastapi==0.110.0
-uvicorn==0.28.0
-boto3==1.34.50
-Pillow==10.2.0
+streamlit==1.57.0
+Pillow==12.2.0
+boto3==1.43.11
+botocore==1.43.11
