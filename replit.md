@@ -58,6 +58,12 @@ Three-column upload pipeline keyed by property name:
 - The `mockup-sandbox` artifact kind is non-deployable via Replit's publish panel — use Streamlit Community Cloud (see `.streamlit/secrets.toml.example` for secrets setup)
 - `Ivan .png` has a space in the filename — keep it exactly as-is (code references that exact path)
 
+## Deployment
+
+- See `DEPLOY.md` for the step-by-step Streamlit Community Cloud setup walkthrough
+- Repo: `IvanTechstack/nav-property-compiler`, main file: `NAV-Property-Compiler/src/nav_property_compiler/main.py`
+- Secrets format: `.streamlit/secrets.toml.example`
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
