@@ -458,7 +458,7 @@ function openFolder(folder){{
   const p=new URLSearchParams();
   p.set('action','open_folder');
   p.set('folder',folder);
-  window.top.location.href=base()+'?'+p.toString();
+  window.parent.location.href=base()+'?'+p.toString();
 }}
 
 function handleDelete(){{
@@ -477,10 +477,10 @@ function handleDelete(){{
   const p=new URLSearchParams();
   p.set('action','delete_folders');
   p.set('folders',JSON.stringify(Array.from(sel)));
-  window.top.location.href=base()+'?'+p.toString();
+  window.parent.location.href=base()+'?'+p.toString();
 }}
 
-function base(){{return window.top.location.href.split('?')[0]}}
+function base(){{return window.parent.location.href.split('?')[0]}}
 </script>
 </body>
 </html>"""
@@ -659,14 +659,14 @@ function updateBar(){{
 }}
 
 // ── Action redirects ────────────────────────────────────────
-function base(){{return window.top.location.href.split('?')[0]}}
+function base(){{return window.parent.location.href.split('?')[0]}}
 
 function doDel(){{
   if(!sel.size)return;
   const p=new URLSearchParams();
   p.set('action','delete');p.set('folder',folder);
   p.set('keys',JSON.stringify(Array.from(sel)));
-  window.top.location.href=base()+'?'+p.toString();
+  window.parent.location.href=base()+'?'+p.toString();
 }}
 
 function doSort(){{
@@ -674,7 +674,7 @@ function doSort(){{
   const p=new URLSearchParams();
   p.set('action','sort_save');p.set('folder',folder);
   p.set('keys',JSON.stringify(keys));
-  window.top.location.href=base()+'?'+p.toString();
+  window.parent.location.href=base()+'?'+p.toString();
 }}
 
 // ── Drag-and-drop (Sortable.js) ─────────────────────────────
