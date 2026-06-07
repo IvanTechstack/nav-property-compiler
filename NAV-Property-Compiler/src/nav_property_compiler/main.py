@@ -259,7 +259,7 @@ def _thumbnail_b64(key: str, max_w: int = 400) -> str | None:
 def _inject_css() -> None:
     st.markdown(f"""
 <style>
-/* ── Global buttons ──────────────────────────────────────── */
+/* ── Global primary buttons ──────────────────────────────── */
 div.stButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"] {{
     background-color:{CRIMSON}!important;
@@ -279,76 +279,113 @@ section[data-testid="stSidebar"] > div{{background-color:#ffffff!important}}
 
 /* ─────────────────────────────────────────────────────────
    MAC FINDER FOLDER CARDS
-   Wrapper: div.finder-card   (standard)
-            div.finder-card-master  (⭐ archive)
+   Each card uses two wrappers:
+     div.finder-card        (standard property folder)
+     div.finder-card-master (⭐ Master Featured archive)
+
+   Architecture: the card border/background lives on the
+   wrapper div; the st.button() inside is transparent so
+   the whole card is one clickable surface.
    ─────────────────────────────────────────────────────── */
+
+/* Card shell */
+div.finder-card,
+div.finder-card-master {{
+    border:1.5px solid #eaeaea;
+    border-radius:16px;
+    background:#fafafa;
+    padding:18px 10px 12px;
+    text-align:center;
+    transition:transform .18s ease,box-shadow .18s ease,
+               border-color .18s ease,background-color .18s ease;
+    margin-bottom:.2rem;
+    cursor:pointer;
+}}
+div.finder-card:hover {{
+    transform:translateY(-5px);
+    box-shadow:0 10px 30px rgba(0,0,0,.10);
+    border-color:#c0c0c0;
+    background:#fff;
+}}
+div.finder-card-master {{
+    background:#fff9f9;border-color:#f0d0d0;
+}}
+div.finder-card-master:hover {{
+    transform:translateY(-5px);
+    box-shadow:0 10px 30px rgba(153,0,0,.12);
+    border-color:#d08080;background:#fff5f5;
+}}
+
+/* Emoji icon row inside each card */
+div.finder-card-icon {{
+    font-size:2.8rem;line-height:1.25;
+    margin-bottom:.3rem;pointer-events:none;
+}}
+
+/* The st.button() inside the card: transparent, just the name */
 div.finder-card button,
 div.finder-card-master button {{
-    background-color:#fafafa!important;
-    border:1.5px solid #eaeaea!important;
-    border-radius:16px!important;
-    min-height:168px!important;
-    height:auto!important;
-    padding:22px 12px 16px!important;
-    line-height:1.65!important;
-    font-size:.85rem!important;
-    color:#1a1a1a!important;
-    width:100%!important;
-    white-space:pre-line!important;
-    transition:transform .18s ease,box-shadow .18s ease,
-               border-color .18s ease,background-color .18s ease!important;
+    background:transparent!important;
+    border:none!important;box-shadow:none!important;
+    padding:.15rem 4px .1rem!important;
+    min-height:unset!important;height:auto!important;
+    font-size:.9rem!important;font-weight:600!important;
+    color:#1a1a1a!important;width:100%!important;
+    line-height:1.3!important;
+    transition:none!important;
 }}
-/* label text inside the button */
+div.finder-card button:hover,
+div.finder-card-master button:hover {{
+    background:transparent!important;
+    text-decoration:underline!important;
+    transform:none!important;box-shadow:none!important;
+}}
 div.finder-card button p,
 div.finder-card-master button p {{
-    white-space:pre-line!important;
-    text-align:center!important;
-    margin:0!important;
+    text-align:center!important;margin:0!important;
+    white-space:normal!important;word-break:break-word!important;
 }}
-div.finder-card button:hover {{
-    transform:translateY(-5px)!important;
-    box-shadow:0 10px 30px rgba(0,0,0,.10)!important;
-    border-color:#c0c0c0!important;
-    background-color:#fff!important;
-}}
-div.finder-card-master button {{
-    background-color:#fff9f9!important;
-    border-color:#f0d0d0!important;
-}}
-div.finder-card-master button:hover {{
-    transform:translateY(-5px)!important;
-    box-shadow:0 10px 30px rgba(153,0,0,.12)!important;
-    border-color:#d08080!important;
-    background-color:#fff5f5!important;
+
+/* Folder meta line (file count + size) rendered below button */
+div.finder-card-meta {{
+    font-size:.72rem;color:#aaa;
+    padding:.1rem 0 .3rem;pointer-events:none;
 }}
 
 /* ── Folder selection checkboxes — circle style ─────────── */
 div.sel-circle [data-testid="stCheckbox"] {{
     display:flex!important;justify-content:center!important;
-    margin-top:.25rem!important;
+    margin-top:.3rem!important;
 }}
 div.sel-circle [data-testid="stCheckbox"] input[type="checkbox"] {{
     width:20px!important;height:20px!important;
     border-radius:50%!important;cursor:pointer!important;
     accent-color:{CRIMSON};
 }}
-div.sel-circle [data-testid="stCheckbox"] label {{
-    display:none!important;
+div.sel-circle [data-testid="stCheckbox"] label {{display:none!important}}
+
+/* ── Image select-toggle button ──────────────────────────── */
+div.img-sel-btn button {{
+    min-height:unset!important;height:auto!important;
+    padding:.3rem 0!important;
+    font-size:.75rem!important;
+    border-radius:0 0 10px 10px!important;
+    margin-top:-1px!important;
+    width:100%!important;
+    transition:background-color .15s,color .15s!important;
 }}
 
-/* ── Image grid checkboxes ───────────────────────────────── */
-div.img-chk [data-testid="stCheckbox"] {{
-    display:flex!important;justify-content:center!important;
-    margin:.15rem 0 .25rem!important;
+/* ── Image position number inputs ────────────────────────── */
+div.img-order-input [data-testid="stNumberInput"] {{
+    margin-top:.2rem!important;
 }}
-div.img-chk [data-testid="stCheckbox"] input[type="checkbox"] {{
-    width:17px!important;height:17px!important;
-    border-radius:50%!important;cursor:pointer!important;
-    accent-color:{CRIMSON};
+div.img-order-input [data-testid="stNumberInput"] input {{
+    text-align:center!important;font-size:.78rem!important;
+    padding:.25rem .3rem!important;
 }}
-div.img-chk [data-testid="stCheckbox"] label {{display:none!important}}
+div.img-order-input label {{display:none!important}}
 
-/* ── Selection action bar ────────────────────────────────── */
+/* ── Action bar ──────────────────────────────────────────── */
 div.action-bar {{
     background:#f6f6f6;border:1px solid #ebebeb;border-radius:10px;
     padding:.5rem .75rem;margin-bottom:.75rem;
@@ -465,21 +502,23 @@ def _render_folder_grid(
                 st.session_state.pop("confirm_bulk_delete", None)
                 st.rerun()
 
-    # ── Master Featured card (full row, always first) ───────────────────────
+    # ── Master Featured card (full-width, always first) ─────────────────────
     master_n = len(master_objects)
     master_size = _fmt_bytes(sum(o.get("Size", 0) for o in master_objects))
-    st.markdown("<div class='finder-card-master'>", unsafe_allow_html=True)
-    if st.button(
-        f"⭐\nMaster Featured\n{master_n} files · {master_size}",
-        key="open_master",
-        use_container_width=True,
-    ):
+    st.markdown(
+        "<div class='finder-card-master'>"
+        "<div class='finder-card-icon'>⭐</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("Master Featured", key="open_master", use_container_width=True):
         st.session_state["browse_open_folder"] = f"{MASTER_FEATURED_PREFIX}/"
         st.session_state.pop(f"thumbs_{MASTER_FEATURED_PREFIX}/", None)
         st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div style='text-align:center;font-size:.7rem;color:#ccc;margin:.15rem 0 1.2rem'>🔒 Protected archive</div>",
+        f"<div class='finder-card-meta'>{master_n} files · {master_size}</div>"
+        f"</div>"
+        f"<div style='text-align:center;font-size:.7rem;color:#bbb;"
+        f"margin:.2rem 0 1.4rem'>🔒 Protected archive — never deleted</div>",
         unsafe_allow_html=True,
     )
 
@@ -489,7 +528,7 @@ def _render_folder_grid(
 
     st.markdown(
         "<div style='font-size:.72rem;font-weight:700;color:#aaa;"
-        "text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem'>"
+        "text-transform:uppercase;letter-spacing:.07em;margin-bottom:.75rem'>"
         "Property Folders</div>",
         unsafe_allow_html=True,
     )
@@ -511,19 +550,23 @@ def _render_folder_grid(
             folder_size = _fmt_bytes(sum(o.get("Size", 0) for o in folder_objs))
 
             with col:
-                # Full-surface clickable folder card button
-                st.markdown("<div class='finder-card'>", unsafe_allow_html=True)
-                if st.button(
-                    f"📁\n{folder_name}\n{n_items} files · {folder_size}",
-                    key=f"fc_{safe_f}",
-                    use_container_width=True,
-                ):
+                # Card shell: emoji + transparent name button + meta line
+                st.markdown(
+                    "<div class='finder-card'>"
+                    "<div class='finder-card-icon'>📁</div>",
+                    unsafe_allow_html=True,
+                )
+                if st.button(folder_name, key=f"fc_{safe_f}", use_container_width=True):
                     st.session_state["browse_open_folder"] = folder
                     st.session_state.pop(f"thumbs_{folder}", None)
                     st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div class='finder-card-meta'>{n_items} files · {folder_size}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
-                # Selection circle checkbox (circle-styled via CSS)
+                # Selection circle checkbox
                 st.markdown("<div class='sel-circle'>", unsafe_allow_html=True)
                 st.checkbox(
                     "Select",
@@ -672,20 +715,30 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
             label_visibility="collapsed",
         )
     with sort_b:
-        sv_col, rv_col = st.columns(2)
-        with sv_col:
-            if st.button("📌 Save Order", key="save_order_btn", use_container_width=True,
-                         help="Save the current display order as the default for this folder"):
-                _save_sort_order(folder, image_keys)
-                st.success("Default order saved.", icon="📌")
-        with rv_col:
-            if st.button("↕ Reverse", key="rev_btn", use_container_width=True):
-                st.session_state["browse_reversed"] = not st.session_state.get("browse_reversed", False)
-                st.rerun()
+        if st.button(
+            "📌 Save Order",
+            key="save_order_btn",
+            use_container_width=True,
+            help="Reads the position numbers below each photo and saves that sequence as the default order for this folder",
+        ):
+            # Read each image's position number_input, sort by it, save to R2
+            order_pairs = [
+                (int(st.session_state.get(f"order_{_safe_key(k)}", i + 1)), i, k)
+                for i, k in enumerate(image_keys)
+            ]
+            order_pairs.sort(key=lambda x: (x[0], x[1]))
+            sorted_keys = [k for _, _, k in order_pairs]
+            _save_sort_order(folder, sorted_keys)
+            # Clear position inputs so they reset to the new sequence
+            for k in image_keys:
+                st.session_state.pop(f"order_{_safe_key(k)}", None)
+            st.session_state.pop(f"thumbs_{folder}", None)
+            st.success("Order saved.", icon="📌")
+            st.rerun()
 
-    # Re-apply sort if radio just changed (sort_mode was read above from previous state)
+    # Re-apply sort if radio just changed
     if new_sort != sort_mode:
-        st.rerun()  # rerun so image_keys are resorted before thumbnail render
+        st.rerun()
 
     # ── Load thumbnails — silent, session-cached ────────────────────────────
     cache_key = f"thumbs_{folder}"
@@ -711,9 +764,35 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
         with img_cols[idx % 3]:
             # 16:9 image with crimson border when selected
             _render_image_card(key, thumbs.get(key), is_sel)
-            # Selection circle checkbox below the image
-            st.markdown("<div class='img-chk'>", unsafe_allow_html=True)
-            st.checkbox("", key=f"sel_img_{safe_k}", label_visibility="collapsed")
+
+            # ── Click-to-select toggle button ────────────────────────────
+            # Full-width button fused to the bottom of the image card.
+            # Clicking anywhere on it toggles selection (crimson = selected).
+            st.markdown("<div class='img-sel-btn'>", unsafe_allow_html=True)
+            btn_label = "✓  Selected" if is_sel else "○  Select"
+            btn_type  = "primary"    if is_sel else "secondary"
+            if st.button(
+                btn_label,
+                key=f"selb_img_{safe_k}",
+                type=btn_type,
+                use_container_width=True,
+            ):
+                st.session_state[f"sel_img_{safe_k}"] = not is_sel
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # ── Position number input for manual reordering ──────────────
+            st.markdown("<div class='img-order-input'>", unsafe_allow_html=True)
+            st.number_input(
+                "Position",
+                min_value=1,
+                max_value=len(image_keys),
+                value=idx + 1,
+                step=1,
+                key=f"order_{safe_k}",
+                label_visibility="collapsed",
+                help=f"Set display position for this photo, then click 📌 Save Order",
+            )
             st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Other (non-image) files ─────────────────────────────────────────────
