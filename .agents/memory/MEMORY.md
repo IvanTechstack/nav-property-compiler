@@ -1,2 +1,3 @@
 - [Nix streamlit binary conflict](nix-streamlit-conflict.md) — full .pythonlibs binary path required; PYTHONPATH must be python3.11 (not python3.12); Pillow ABI mismatch otherwise
 - [No numpy in Nix](no-numpy-nix.md) — st.image(), st.sidebar.image(), st.table() all call numpy; use PIL→base64→HTML img instead
+- [Streamlit 1.57 button CSS architecture](streamlit-button-css.md) — st.button() labels collapse \n to space; use markdown div wrapper + transparent button CSS instead of styling the button itself as the card.
