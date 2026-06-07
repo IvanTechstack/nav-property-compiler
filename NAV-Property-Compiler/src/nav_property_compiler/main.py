@@ -10,7 +10,6 @@ from dataclasses import dataclass
 
 import boto3
 import streamlit as st
-import streamlit.components.v1 as components
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps
@@ -223,6 +222,11 @@ def _save_sort_order(folder: str, ordered_keys: list[str]) -> None:
 # UI helpers
 # ---------------------------------------------------------------------------
 
+def _safe_key(s: str) -> str:
+    """Sanitise an arbitrary string for use as a Streamlit widget key."""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", s)
+
+
 def _fmt_bytes(n: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024:
@@ -255,7 +259,7 @@ def _thumbnail_b64(key: str, max_w: int = 400) -> str | None:
 def _inject_css() -> None:
     st.markdown(f"""
 <style>
-/* ── Global ────────────────────────────────────────────────── */
+/* ── Global buttons ──────────────────────────────────────── */
 div.stButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"] {{
     background-color:{CRIMSON}!important;
@@ -273,6 +277,84 @@ section[data-testid="stSidebar"]{{
 section[data-testid="stSidebar"] > div{{background-color:#ffffff!important}}
 .sidebar-divider{{border:none;border-top:1px solid #d9d9d9;margin:.75rem 0 1rem}}
 
+/* ─────────────────────────────────────────────────────────
+   MAC FINDER FOLDER CARDS
+   Wrapper: div.finder-card   (standard)
+            div.finder-card-master  (⭐ archive)
+   ─────────────────────────────────────────────────────── */
+div.finder-card button,
+div.finder-card-master button {{
+    background-color:#fafafa!important;
+    border:1.5px solid #eaeaea!important;
+    border-radius:16px!important;
+    min-height:168px!important;
+    height:auto!important;
+    padding:22px 12px 16px!important;
+    line-height:1.65!important;
+    font-size:.85rem!important;
+    color:#1a1a1a!important;
+    width:100%!important;
+    white-space:pre-line!important;
+    transition:transform .18s ease,box-shadow .18s ease,
+               border-color .18s ease,background-color .18s ease!important;
+}}
+/* label text inside the button */
+div.finder-card button p,
+div.finder-card-master button p {{
+    white-space:pre-line!important;
+    text-align:center!important;
+    margin:0!important;
+}}
+div.finder-card button:hover {{
+    transform:translateY(-5px)!important;
+    box-shadow:0 10px 30px rgba(0,0,0,.10)!important;
+    border-color:#c0c0c0!important;
+    background-color:#fff!important;
+}}
+div.finder-card-master button {{
+    background-color:#fff9f9!important;
+    border-color:#f0d0d0!important;
+}}
+div.finder-card-master button:hover {{
+    transform:translateY(-5px)!important;
+    box-shadow:0 10px 30px rgba(153,0,0,.12)!important;
+    border-color:#d08080!important;
+    background-color:#fff5f5!important;
+}}
+
+/* ── Folder selection checkboxes — circle style ─────────── */
+div.sel-circle [data-testid="stCheckbox"] {{
+    display:flex!important;justify-content:center!important;
+    margin-top:.25rem!important;
+}}
+div.sel-circle [data-testid="stCheckbox"] input[type="checkbox"] {{
+    width:20px!important;height:20px!important;
+    border-radius:50%!important;cursor:pointer!important;
+    accent-color:{CRIMSON};
+}}
+div.sel-circle [data-testid="stCheckbox"] label {{
+    display:none!important;
+}}
+
+/* ── Image grid checkboxes ───────────────────────────────── */
+div.img-chk [data-testid="stCheckbox"] {{
+    display:flex!important;justify-content:center!important;
+    margin:.15rem 0 .25rem!important;
+}}
+div.img-chk [data-testid="stCheckbox"] input[type="checkbox"] {{
+    width:17px!important;height:17px!important;
+    border-radius:50%!important;cursor:pointer!important;
+    accent-color:{CRIMSON};
+}}
+div.img-chk [data-testid="stCheckbox"] label {{display:none!important}}
+
+/* ── Selection action bar ────────────────────────────────── */
+div.action-bar {{
+    background:#f6f6f6;border:1px solid #ebebeb;border-radius:10px;
+    padding:.5rem .75rem;margin-bottom:.75rem;
+    display:flex;align-items:center;gap:.6rem;
+}}
+
 /* ── Upload column boxes ─────────────────────────────────── */
 .upload-col{{border:1px solid {SLATE};border-radius:8px;padding:1rem}}
 </style>
@@ -288,410 +370,36 @@ def _col_header(label: str, spec: str, color: str) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Mac Finder folder grid — HTML component
-# ---------------------------------------------------------------------------
-
-def _build_folder_grid_html(
-    prop_folders: list[str],
-    folder_meta: dict[str, dict],
-    master_n: int,
-    master_size: str,
-) -> tuple[str, int]:
-    """
-    Render a Mac Finder-style 4-column folder grid.
-    • Click card body   → open folder  (?action=open_folder)
-    • Click ○ circle    → toggle select
-    • Selected ≥ 1      → 'Delete Selected Folders' button appears
-    Returns (html_string, iframe_height_px).
-    """
-
-    def card_html(folder_key: str, icon: str, name: str, meta_line: str,
-                  extra_class: str = "") -> str:
-        fk = json.dumps(folder_key)
-        return f"""<div class="card {extra_class}" data-folder={fk}
-     onclick="openFolder({fk})">
-  <div class="circle" onclick="event.stopPropagation();toggleSel(this,{fk})"></div>
-  <div class="icon">{icon}</div>
-  <div class="name">{name}</div>
-  <div class="meta">{meta_line}</div>
-</div>"""
-
-    cards = card_html(
-        f"{MASTER_FEATURED_PREFIX}/", "⭐", "Master Featured",
-        f"{master_n} files · {master_size}", "master",
-    )
-    for folder in prop_folders:
-        m = folder_meta.get(folder, {})
-        name = folder.rstrip("/").split("/")[-1]
-        cards += card_html(folder, "📁", name,
-                           f"{m.get('n', 0)} files · {m.get('size_str', '0 B')}")
-
-    total_cards = 1 + len(prop_folders)
-    rows = max(1, (total_cards + 3) // 4)
-    height = rows * 220 + 74  # 220px per row + 74px header buffer
-
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-*{{box-sizing:border-box;margin:0;padding:0;
-   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif}}
-body{{padding:10px;background:transparent}}
-
-/* ── Header bar (hidden until selection) ── */
-#hdr{{
-  display:none;align-items:center;gap:10px;
-  padding:0 4px 12px;
-}}
-#del-btn{{
-  background:#990000;color:#fff;border:none;border-radius:8px;
-  padding:7px 16px;font-size:.8rem;font-weight:600;cursor:pointer;
-  transition:background .14s;
-}}
-#del-btn:hover{{background:#b80000}}
-#del-btn.confirm{{background:#cc0000}}
-#sel-lbl{{font-size:.78rem;color:#888}}
-
-/* ── Folder grid ── */
-#grid{{
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:14px;
-}}
-
-/* ── Folder card ── */
-.card{{
-  position:relative;
-  display:flex;flex-direction:column;align-items:center;
-  justify-content:center;
-  padding:26px 10px 20px;
-  background:#fafafa;
-  border:1.5px solid #eaeaea;
-  border-radius:16px;
-  cursor:pointer;
-  transition:transform .16s ease,box-shadow .16s ease,
-             border-color .16s ease,background .16s ease;
-  user-select:none;
-  min-height:190px;
-}}
-.card:hover{{
-  transform:translateY(-5px);
-  box-shadow:0 10px 30px rgba(0,0,0,.10);
-  border-color:#c8c8c8;background:#fff;
-}}
-.card.master{{border-color:#f0d0d0;background:#fff9f9}}
-.card.master:hover{{
-  box-shadow:0 10px 30px rgba(153,0,0,.12);
-  border-color:#d08080;background:#fff4f4;
-}}
-.card.selected{{
-  border-color:#990000!important;
-  background:#fff5f5!important;
-  box-shadow:0 0 0 3px rgba(153,0,0,.14)!important;
-}}
-
-/* ── Folder icon ── */
-.icon{{font-size:3.6rem;line-height:1;margin-bottom:12px}}
-
-/* ── Labels ── */
-.name{{
-  font-size:.84rem;font-weight:600;color:#1a1a1a;
-  text-align:center;line-height:1.3;margin-bottom:5px;
-  word-break:break-word;
-}}
-.meta{{font-size:.71rem;color:#b0b0b0;text-align:center}}
-
-/* ── Selection circle ── */
-.circle{{
-  position:absolute;top:11px;right:11px;
-  width:21px;height:21px;border-radius:50%;
-  border:1.5px solid #d0d0d0;background:#fff;
-  cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  opacity:0;transition:opacity .14s,background .14s,border-color .14s;
-  z-index:2;
-}}
-.card:hover .circle{{opacity:1}}
-.circle.on{{opacity:1!important;background:#990000;border-color:#990000}}
-.circle.on::after{{content:'✓';color:#fff;font-size:.64rem;font-weight:800}}
-</style>
-</head>
-<body>
-
-<div id="hdr">
-  <button id="del-btn" onclick="handleDelete()">🗑 Delete Selected Folders</button>
-  <span id="sel-lbl"></span>
-</div>
-
-<div id="grid">
-{cards}
-</div>
-
-<script>
-const hdr=document.getElementById('hdr');
-const delBtn=document.getElementById('del-btn');
-const selLbl=document.getElementById('sel-lbl');
-const sel=new Set();
-let confirmPending=false;
-
-function toggleSel(circle,folder){{
-  if(sel.has(folder)){{
-    sel.delete(folder);
-    circle.classList.remove('on');
-    circle.closest('.card').classList.remove('selected');
-  }}else{{
-    sel.add(folder);
-    circle.classList.add('on');
-    circle.closest('.card').classList.add('selected');
-  }}
-  const n=sel.size;
-  hdr.style.display=n>0?'flex':'none';
-  selLbl.textContent=n+' folder'+(n!==1?'s':'')+' selected';
-  confirmPending=false;
-  delBtn.textContent='🗑 Delete Selected Folders';
-  delBtn.classList.remove('confirm');
-}}
-
-function openFolder(folder){{
-  const p=new URLSearchParams();
-  p.set('action','open_folder');
-  p.set('folder',folder);
-  window.parent.location.href=base()+'?'+p.toString();
-}}
-
-function handleDelete(){{
-  if(!sel.size)return;
-  if(!confirmPending){{
-    confirmPending=true;
-    delBtn.textContent='⚠ Tap again to confirm';
-    delBtn.classList.add('confirm');
-    setTimeout(()=>{{
-      confirmPending=false;
-      delBtn.textContent='🗑 Delete Selected Folders';
-      delBtn.classList.remove('confirm');
-    }},3500);
-    return;
-  }}
-  const p=new URLSearchParams();
-  p.set('action','delete_folders');
-  p.set('folders',JSON.stringify(Array.from(sel)));
-  window.parent.location.href=base()+'?'+p.toString();
-}}
-
-function base(){{return window.parent.location.href.split('?')[0]}}
-</script>
-</body>
-</html>"""
-    return html, height
-
-
-# ---------------------------------------------------------------------------
-# Image grid — HTML component (16:9, top action bar, drag-and-drop)
-# ---------------------------------------------------------------------------
-
-def _build_image_grid_html(
-    image_keys: list[str],
-    thumbs: dict[str, str | None],
-    folder: str,
-    has_custom_order: bool,
-) -> tuple[str, int]:
-    """
-    Interactive image panel:
-      • 16:9 aspect-ratio thumbnail containers (object-fit cover)
-      • Action bar pinned to TOP: [Delete Selected] [status] [Apply Sort Order]
-      • Click card = toggle crimson selection border
-      • ⠿ drag handle = Sortable.js reorder
-      • Actions redirect window.top with ?action=delete|sort_save
-    Returns (html_string, iframe_height_px).
-    """
-    cards = ""
-    for key in image_keys:
-        b64 = thumbs.get(key)
-        filename = key.split("/")[-1]
-        fk = json.dumps(key)
-        if b64:
-            img_inner = (
-                f"<img src='data:image/jpeg;base64,{b64}' "
-                f"style='position:absolute;top:0;left:0;width:100%;height:100%;"
-                f"object-fit:cover;pointer-events:none'>"
-            )
-        else:
-            img_inner = (
-                "<div style='position:absolute;top:0;left:0;width:100%;height:100%;"
-                "display:flex;align-items:center;justify-content:center;"
-                "color:#ddd;font-size:1.4rem'>⚠</div>"
-            )
-        cards += f"""
-<div class="card" data-key={fk}>
-  <div class="handle">⠿ ⠿</div>
-  <div class="ratio16x9">{img_inner}</div>
-  <div class="fname">{filename}</div>
-</div>"""
-
-    n = len(image_keys)
-    rows = max(1, (n + 2) // 3)
-    # 56.25% padding = 16:9; at ~300px col width each row ≈ 169px image
-    # + 22px handle + 22px fname + 10px gaps = ~223px per row
-    height = rows * 223 + 70  # +70 for top bar + body padding
-
-    order_badge = (
-        "<span style='font-size:.7rem;color:#708090;margin-left:4px'>📌 Custom order</span>"
-        if has_custom_order else ""
+def _render_image_card(key: str, b64: str | None, selected: bool) -> None:
+    """16:9 aspect-ratio image card via pure HTML (no numpy / no st.image)."""
+    border = f"3px solid {CRIMSON}" if selected else "3px solid transparent"
+    filename = key.split("/")[-1]
+    if b64:
+        inner = (
+            f"<img src='data:image/jpeg;base64,{b64}' "
+            f"style='position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover'>"
+        )
+    else:
+        inner = (
+            "<div style='position:absolute;top:0;left:0;width:100%;height:100%;"
+            "display:flex;align-items:center;justify-content:center;"
+            "color:#ccc;font-size:1.2rem'>⚠</div>"
+        )
+    st.markdown(
+        f"<div style='border:{border};border-radius:10px;overflow:hidden;"
+        f"transition:border-color .15s;margin-bottom:0'>"
+        f"<div style='position:relative;padding-bottom:56.25%;background:#e8e8e8'>"
+        f"{inner}</div>"
+        f"<div style='font-size:.66rem;color:#999;padding:3px 7px;"
+        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+        f"background:#fafafa;border-top:1px solid #f0f0f0'>{filename}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
     )
 
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-<style>
-*{{box-sizing:border-box;margin:0;padding:0;
-   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif}}
-body{{padding:8px;background:transparent}}
-
-/* ── Top action bar (always visible) ── */
-.topbar{{
-  display:flex;align-items:center;gap:8px;
-  padding:7px 10px;margin-bottom:10px;
-  background:#f6f6f6;border-radius:10px;border:1px solid #ebebeb;
-}}
-.btn{{border:none;border-radius:7px;padding:6px 14px;
-  font-size:.78rem;font-weight:600;cursor:pointer;transition:opacity .14s}}
-.btn:hover{{opacity:.82}}
-.btn-del{{background:#990000;color:#fff}}
-.btn-del:disabled{{background:#e4e4e4;color:#bbb;cursor:default;opacity:1}}
-.btn-sort{{background:#708090;color:#fff;margin-left:auto}}
-.hint{{font-size:.73rem;color:#bbb;flex:1}}
-
-/* ── Image grid ── */
-#grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}
-
-/* ── Image card ── */
-.card{{
-  border-radius:10px;overflow:hidden;cursor:pointer;
-  border:3px solid transparent;
-  background:#f2f2f2;
-  transition:border-color .15s,box-shadow .15s;
-  user-select:none;
-}}
-.card:hover{{box-shadow:0 4px 16px rgba(0,0,0,.10)}}
-.card.sel{{
-  border-color:#990000;
-  box-shadow:0 0 0 1px rgba(153,0,0,.18);
-}}
-
-/* ── Drag handle strip ── */
-.handle{{
-  text-align:center;padding:4px 0;
-  color:#d0d0d0;font-size:.72rem;letter-spacing:3px;
-  cursor:grab;background:#f8f8f8;
-  border-bottom:1px solid #ebebeb;
-  transition:color .12s,background .12s;
-}}
-.handle:hover{{color:#999;background:#f0f0f0}}
-.handle:active{{cursor:grabbing}}
-
-/* ── 16:9 image container ── */
-.ratio16x9{{
-  position:relative;
-  width:100%;
-  padding-bottom:56.25%;
-  overflow:hidden;
-  background:#ebebeb;
-}}
-
-/* ── Filename caption ── */
-.fname{{
-  font-size:.66rem;color:#999;padding:4px 7px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  background:#fafafa;border-top:1px solid #f0f0f0;
-}}
-
-/* ── Sortable states ── */
-.sortable-ghost{{opacity:.28;border:2px dashed #ccc}}
-.sortable-chosen{{
-  transform:scale(1.03);
-  box-shadow:0 12px 32px rgba(0,0,0,.18)!important;
-  z-index:99;
-}}
-</style>
-</head>
-<body>
-
-<!-- TOP ACTION BAR -->
-<div class="topbar">
-  <button class="btn btn-del" id="bdel" disabled onclick="doDel()">Delete Selected</button>
-  <span class="hint" id="hint">Click photo to select &nbsp;·&nbsp; Drag ⠿ to reorder</span>
-  {order_badge}
-  <button class="btn btn-sort" onclick="doSort()">💾 Apply Sort Order</button>
-</div>
-
-<!-- IMAGE GRID -->
-<div id="grid" data-folder={json.dumps(folder)}>
-{cards}
-</div>
-
-<script>
-const grid=document.getElementById('grid');
-const bdel=document.getElementById('bdel');
-const hint=document.getElementById('hint');
-const folder=grid.dataset.folder;
-const sel=new Set();
-
-// ── Click-to-highlight ──────────────────────────────────────
-grid.querySelectorAll('.card').forEach(c=>{{
-  c.addEventListener('click',e=>{{
-    if(e.target.closest('.handle'))return;
-    const k=c.dataset.key;
-    if(sel.has(k)){{sel.delete(k);c.classList.remove('sel')}}
-    else{{sel.add(k);c.classList.add('sel')}}
-    updateBar();
-  }});
-}});
-
-function updateBar(){{
-  const n=sel.size;
-  bdel.disabled=n===0;
-  bdel.textContent=n>0?'🗑 Delete '+n+' photo'+(n!==1?'s':''):'Delete Selected';
-  hint.textContent=n>0?n+' selected':'Click photo to select · Drag ⠿ to reorder';
-}}
-
-// ── Action redirects ────────────────────────────────────────
-function base(){{return window.parent.location.href.split('?')[0]}}
-
-function doDel(){{
-  if(!sel.size)return;
-  const p=new URLSearchParams();
-  p.set('action','delete');p.set('folder',folder);
-  p.set('keys',JSON.stringify(Array.from(sel)));
-  window.parent.location.href=base()+'?'+p.toString();
-}}
-
-function doSort(){{
-  const keys=Array.from(grid.querySelectorAll('.card')).map(c=>c.dataset.key);
-  const p=new URLSearchParams();
-  p.set('action','sort_save');p.set('folder',folder);
-  p.set('keys',JSON.stringify(keys));
-  window.parent.location.href=base()+'?'+p.toString();
-}}
-
-// ── Drag-and-drop (Sortable.js) ─────────────────────────────
-Sortable.create(grid,{{
-  animation:160,
-  handle:'.handle',
-  ghostClass:'sortable-ghost',
-  chosenClass:'sortable-chosen',
-}});
-</script>
-</body>
-</html>"""
-    return html, height
-
 
 # ---------------------------------------------------------------------------
-# Browse — Finder folder grid view
+# Browse — Finder folder grid (pure native Streamlit)
 # ---------------------------------------------------------------------------
 
 def _render_folder_grid(
@@ -699,66 +407,231 @@ def _render_folder_grid(
     all_objects: list[dict],
     master_objects: list[dict],
 ) -> None:
+    """
+    Mac Finder-style 4-column folder grid built entirely from native Streamlit:
+    • st.button()   → open folder on click
+    • st.checkbox() → styled as selection circle below each card
+    • Selected ≥ 1  → Delete Selected Folders bar at top
+    """
+
+    # ── Read current selection from widget state ────────────────────────────
+    selected_folders = [
+        f for f in prop_folders
+        if st.session_state.get(f"sel_folder_{_safe_key(f)}", False)
+    ]
+
+    # ── Action bar (visible only when folders are selected) ─────────────────
+    if selected_folders:
+        n_sel = len(selected_folders)
+        st.markdown("<div class='action-bar'>", unsafe_allow_html=True)
+        bar_a, bar_b, bar_c = st.columns([2, 4, 2])
+        with bar_a:
+            if st.button(
+                f"🗑 Delete {n_sel} Folder{'s' if n_sel > 1 else ''}",
+                key="bulk_del_folders",
+                type="primary",
+                use_container_width=True,
+            ):
+                st.session_state["confirm_bulk_delete"] = selected_folders[:]
+        with bar_c:
+            if st.button("✕ Clear selection", key="clear_folder_sel", use_container_width=True):
+                for f in prop_folders:
+                    k = f"sel_folder_{_safe_key(f)}"
+                    if k in st.session_state:
+                        st.session_state[k] = False
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Bulk-delete confirmation ─────────────────────────────────────────────
+    if "confirm_bulk_delete" in st.session_state:
+        targets = st.session_state["confirm_bulk_delete"]
+        names = ", ".join(t.rstrip("/").split("/")[-1] for t in targets)
+        st.warning(f"⚠ Permanently delete folders: **{names}**? All contents will be removed.")
+        yes_c, no_c = st.columns(2)
+        with yes_c:
+            if st.button("✅ Confirm delete", key="bulk_del_confirm", type="primary"):
+                for folder in targets:
+                    if folder.startswith(f"{MASTER_FEATURED_PREFIX}/"):
+                        continue
+                    for obj in all_objects:
+                        if obj["Key"].startswith(folder):
+                            delete_object(obj["Key"])
+                    st.session_state.pop(f"thumbs_{folder}", None)
+                    st.session_state.pop(f"sel_folder_{_safe_key(folder)}", None)
+                st.session_state.pop("confirm_bulk_delete", None)
+                st.rerun()
+        with no_c:
+            if st.button("Cancel", key="bulk_del_cancel"):
+                st.session_state.pop("confirm_bulk_delete", None)
+                st.rerun()
+
+    # ── Master Featured card (full row, always first) ───────────────────────
     master_n = len(master_objects)
     master_size = _fmt_bytes(sum(o.get("Size", 0) for o in master_objects))
-
-    # Build folder metadata dict
-    folder_meta: dict[str, dict] = {}
-    for folder in prop_folders:
-        objs = [o for o in all_objects if o["Key"].startswith(folder)]
-        folder_meta[folder] = {
-            "n": len(objs),
-            "size_str": _fmt_bytes(sum(o.get("Size", 0) for o in objs)),
-        }
-
-    grid_html, grid_height = _build_folder_grid_html(
-        prop_folders, folder_meta, master_n, master_size
+    st.markdown("<div class='finder-card-master'>", unsafe_allow_html=True)
+    if st.button(
+        f"⭐\nMaster Featured\n{master_n} files · {master_size}",
+        key="open_master",
+        use_container_width=True,
+    ):
+        st.session_state["browse_open_folder"] = f"{MASTER_FEATURED_PREFIX}/"
+        st.session_state.pop(f"thumbs_{MASTER_FEATURED_PREFIX}/", None)
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='text-align:center;font-size:.7rem;color:#ccc;margin:.15rem 0 1.2rem'>🔒 Protected archive</div>",
+        unsafe_allow_html=True,
     )
-    components.html(grid_html, height=grid_height, scrolling=False)
+
+    if not prop_folders:
+        st.info("No property folders yet. Upload images to create one.")
+        return
+
+    st.markdown(
+        "<div style='font-size:.72rem;font-weight:700;color:#aaa;"
+        "text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem'>"
+        "Property Folders</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 4-column property folder grid ───────────────────────────────────────
+    COLS = 4
+    rows = [prop_folders[i:i + COLS] for i in range(0, len(prop_folders), COLS)]
+
+    for row in rows:
+        padded = row + [None] * (COLS - len(row))
+        cols = st.columns(COLS)
+        for col, folder in zip(cols, padded):
+            if folder is None:
+                continue
+            safe_f = _safe_key(folder)
+            folder_name = folder.rstrip("/").split("/")[-1]
+            folder_objs = [o for o in all_objects if o["Key"].startswith(folder)]
+            n_items = len(folder_objs)
+            folder_size = _fmt_bytes(sum(o.get("Size", 0) for o in folder_objs))
+
+            with col:
+                # Full-surface clickable folder card button
+                st.markdown("<div class='finder-card'>", unsafe_allow_html=True)
+                if st.button(
+                    f"📁\n{folder_name}\n{n_items} files · {folder_size}",
+                    key=f"fc_{safe_f}",
+                    use_container_width=True,
+                ):
+                    st.session_state["browse_open_folder"] = folder
+                    st.session_state.pop(f"thumbs_{folder}", None)
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+                # Selection circle checkbox (circle-styled via CSS)
+                st.markdown("<div class='sel-circle'>", unsafe_allow_html=True)
+                st.checkbox(
+                    "Select",
+                    key=f"sel_folder_{safe_f}",
+                    label_visibility="collapsed",
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
-# Browse — Opened folder view
+# Browse — Opened folder view (pure native Streamlit)
 # ---------------------------------------------------------------------------
 
 def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
+    """
+    Opened folder: 16:9 image grid with:
+    • Checkbox-based image selection (circle-styled)
+    • Delete Selected + Clear Folder pinned to top header
+    • Sort controls + Save Current Order → sort_order.json
+    • Silent spinner thumbnail loading (session-cached)
+    """
     is_master = folder.startswith(f"{MASTER_FEATURED_PREFIX}/")
     folder_label = folder.rstrip("/").split("/")[-1]
+    icon = "⭐" if is_master else "📁"
 
     objects = [o for o in all_objects if o["Key"].startswith(folder)]
     meta_by_key = {o["Key"]: o for o in objects}
-    image_keys = [o["Key"] for o in objects if _is_image(o["Key"])]
-    other_keys = [
+
+    image_keys: list[str] = [
+        o["Key"] for o in objects
+        if _is_image(o["Key"])
+    ]
+    other_keys: list[str] = [
         o["Key"] for o in objects
         if not _is_image(o["Key"]) and not o["Key"].endswith("sort_order.json")
     ]
     total_size = sum(o.get("Size", 0) for o in objects)
 
-    # ── Sticky top header row ───────────────────────────────────────────────
-    icon = "⭐" if is_master else "📁"
-    back_col, title_col, action_col = st.columns([1, 5, 2])
+    # ── Apply saved sort order ──────────────────────────────────────────────
+    saved_order = _load_sort_order(folder)
+    if saved_order:
+        existing_set = set(image_keys)
+        ordered = [k for k in saved_order if k in existing_set]
+        new_keys = [k for k in image_keys if k not in set(ordered)]
+        image_keys = ordered + new_keys
 
-    with back_col:
+    # ── Apply sort radio ────────────────────────────────────────────────────
+    sort_mode = st.session_state.get("browse_sort", "Custom order")
+    if sort_mode == "Filename A→Z":
+        image_keys = sorted(image_keys)
+    elif sort_mode == "Filename Z→A":
+        image_keys = sorted(image_keys, reverse=True)
+    elif sort_mode == "Date ↓":
+        image_keys = sorted(image_keys,
+                            key=lambda k: str(meta_by_key[k].get("LastModified", "")),
+                            reverse=True)
+    elif sort_mode == "Date ↑":
+        image_keys = sorted(image_keys,
+                            key=lambda k: str(meta_by_key[k].get("LastModified", "")))
+
+    if st.session_state.get("browse_reversed", False):
+        image_keys.reverse()
+
+    # ── Read image selections from widget state (previous rerun) ───────────
+    selected_imgs: list[str] = [
+        k for k in image_keys
+        if st.session_state.get(f"sel_img_{_safe_key(k)}", False)
+    ]
+    n_img_sel = len(selected_imgs)
+
+    # ── TOP HEADER ROW ─────────────────────────────────────────────────────
+    back_c, title_c, del_c, wipe_c = st.columns([1, 5, 2, 2])
+
+    with back_c:
         if st.button("⬅ Back", key="back_btn", use_container_width=True):
             st.session_state.pop("browse_open_folder", None)
             st.session_state.pop(f"thumbs_{folder}", None)
+            st.session_state.pop("browse_reversed", None)
             st.rerun()
 
-    with title_col:
+    with title_c:
         st.markdown(
-            f"<h3 style='margin:0;padding-top:.25rem'>{icon} {folder_label}</h3>"
+            f"<h3 style='margin:0;padding-top:.2rem'>{icon} {folder_label}</h3>"
             f"<span style='font-size:.76rem;color:#aaa'>"
             f"{len(image_keys)} images · {_fmt_bytes(total_size)}</span>",
             unsafe_allow_html=True,
         )
 
-    with action_col:
+    with del_c:
+        if n_img_sel:
+            if st.button(
+                f"🗑 Delete {n_img_sel} Photo{'s' if n_img_sel > 1 else ''}",
+                key="del_sel_imgs",
+                type="primary",
+                use_container_width=True,
+            ):
+                for k in selected_imgs:
+                    delete_object(k)
+                    st.session_state.pop(f"sel_img_{_safe_key(k)}", None)
+                st.session_state.pop(f"thumbs_{folder}", None)
+                st.rerun()
+
+    with wipe_c:
         if not is_master and image_keys:
-            if st.button("🗑️ Clear Folder", key="clear_folder_btn",
-                         use_container_width=True, type="secondary"):
+            if st.button("🗑️ Clear Folder", key="clear_folder_btn", use_container_width=True):
                 st.session_state["confirm_wipe"] = folder
 
-    st.markdown("<div style='margin:.4rem 0'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin:.3rem 0'></div>", unsafe_allow_html=True)
 
     # ── Clear-folder confirmation ───────────────────────────────────────────
     if st.session_state.get("confirm_wipe") == folder:
@@ -766,17 +639,17 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
             f"⚠ Permanently wipe all **{len(image_keys)} image(s)** from `{folder_label}/`? "
             f"Featured banners are safe in `{MASTER_FEATURED_PREFIX}/`."
         )
-        y_col, n_col = st.columns(2)
-        with y_col:
-            if st.button("✅ Yes, wipe", key="wipe_yes", type="primary"):
+        yw, nw = st.columns(2)
+        with yw:
+            if st.button("✅ Yes, wipe folder", key="wipe_yes", type="primary"):
                 for o in objects:
                     delete_object(o["Key"])
                 st.session_state.pop("confirm_wipe", None)
                 st.session_state.pop("browse_open_folder", None)
                 st.session_state.pop(f"thumbs_{folder}", None)
-                st.success(f"`{folder_label}/` cleared — {len(objects)} file(s) removed.")
+                st.success(f"`{folder_label}/` cleared.")
                 st.rerun()
-        with n_col:
+        with nw:
             if st.button("Cancel", key="wipe_no"):
                 st.session_state.pop("confirm_wipe", None)
                 st.rerun()
@@ -789,37 +662,30 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
                     st.write(f"`{k.split('/')[-1]}`")
         return
 
-    # ── Sort controls ───────────────────────────────────────────────────────
-    s_col, r_col = st.columns([5, 1])
-    with s_col:
-        sort_mode = st.radio(
+    # ── Sort controls + Save Order ──────────────────────────────────────────
+    sort_a, sort_b = st.columns([6, 2])
+    with sort_a:
+        new_sort = st.radio(
             "Sort", ["Custom order", "Filename A→Z", "Filename Z→A", "Date ↓", "Date ↑"],
-            horizontal=True, key="browse_sort", label_visibility="collapsed",
+            horizontal=True,
+            key="browse_sort",
+            label_visibility="collapsed",
         )
-    with r_col:
-        if st.button("↕ Reverse", key="rev_btn", use_container_width=True):
-            st.session_state["browse_reversed"] = not st.session_state.get("browse_reversed", False)
+    with sort_b:
+        sv_col, rv_col = st.columns(2)
+        with sv_col:
+            if st.button("📌 Save Order", key="save_order_btn", use_container_width=True,
+                         help="Save the current display order as the default for this folder"):
+                _save_sort_order(folder, image_keys)
+                st.success("Default order saved.", icon="📌")
+        with rv_col:
+            if st.button("↕ Reverse", key="rev_btn", use_container_width=True):
+                st.session_state["browse_reversed"] = not st.session_state.get("browse_reversed", False)
+                st.rerun()
 
-    # ── Apply sort order ────────────────────────────────────────────────────
-    saved_order = _load_sort_order(folder)
-    has_custom_order = bool(saved_order)
-
-    if sort_mode == "Custom order" and saved_order:
-        existing_set = set(image_keys)
-        ordered = [k for k in saved_order if k in existing_set]
-        new_keys = [k for k in image_keys if k not in set(ordered)]
-        image_keys = ordered + new_keys
-    elif sort_mode == "Filename A→Z":
-        image_keys.sort()
-    elif sort_mode == "Filename Z→A":
-        image_keys.sort(reverse=True)
-    elif sort_mode == "Date ↓":
-        image_keys.sort(key=lambda k: str(meta_by_key[k].get("LastModified", "")), reverse=True)
-    elif sort_mode == "Date ↑":
-        image_keys.sort(key=lambda k: str(meta_by_key[k].get("LastModified", "")))
-
-    if st.session_state.get("browse_reversed", False):
-        image_keys.reverse()
+    # Re-apply sort if radio just changed (sort_mode was read above from previous state)
+    if new_sort != sort_mode:
+        st.rerun()  # rerun so image_keys are resorted before thumbnail render
 
     # ── Load thumbnails — silent, session-cached ────────────────────────────
     cache_key = f"thumbs_{folder}"
@@ -831,18 +697,26 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
         thumbs = st.session_state[cache_key]
         missing = [k for k in image_keys if k not in thumbs]
         if missing:
-            with st.spinner(f"Loading {len(missing)} new images…"):
+            with st.spinner(f"Loading {len(missing)} new image{'s' if len(missing) > 1 else ''}…"):
                 for k in missing:
                     thumbs[k] = _thumbnail_b64(k)
             st.session_state[cache_key] = thumbs
 
-    # ── Interactive image grid ──────────────────────────────────────────────
-    grid_html, grid_height = _build_image_grid_html(
-        image_keys, thumbs, folder, has_custom_order
-    )
-    components.html(grid_html, height=grid_height, scrolling=False)
+    # ── 3-column image grid ─────────────────────────────────────────────────
+    st.markdown("<div style='margin-top:.5rem'></div>", unsafe_allow_html=True)
+    img_cols = st.columns(3)
+    for idx, key in enumerate(image_keys):
+        safe_k = _safe_key(key)
+        is_sel = st.session_state.get(f"sel_img_{safe_k}", False)
+        with img_cols[idx % 3]:
+            # 16:9 image with crimson border when selected
+            _render_image_card(key, thumbs.get(key), is_sel)
+            # Selection circle checkbox below the image
+            st.markdown("<div class='img-chk'>", unsafe_allow_html=True)
+            st.checkbox("", key=f"sel_img_{safe_k}", label_visibility="collapsed")
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Other files ─────────────────────────────────────────────────────────
+    # ── Other (non-image) files ─────────────────────────────────────────────
     if other_keys:
         with st.expander(f"Other files ({len(other_keys)})"):
             for key in other_keys:
@@ -858,67 +732,6 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
 def page_browse() -> None:
     st.header("Browse bucket")
 
-    # ── Query-param action router ───────────────────────────────────────────
-    params = st.query_params
-    action = params.get("action", "")
-
-    if action == "open_folder":
-        folder = params.get("folder", "")
-        if folder:
-            st.session_state["browse_open_folder"] = folder
-            st.session_state.pop(f"thumbs_{folder}", None)
-        st.query_params.clear()
-        st.rerun()
-
-    elif action == "delete":
-        folder = params.get("folder", "")
-        try:
-            keys_to_delete: list[str] = json.loads(params.get("keys", "[]"))
-            for k in keys_to_delete:
-                try:
-                    delete_object(k)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        if folder:
-            st.session_state["browse_open_folder"] = folder
-        st.session_state.pop(f"thumbs_{folder}", None)
-        st.query_params.clear()
-        st.rerun()
-
-    elif action == "sort_save":
-        folder = params.get("folder", "")
-        try:
-            ordered_keys: list[str] = json.loads(params.get("keys", "[]"))
-            if folder and ordered_keys:
-                _save_sort_order(folder, ordered_keys)
-        except Exception:
-            pass
-        if folder:
-            st.session_state["browse_open_folder"] = folder
-        st.session_state.pop(f"thumbs_{folder}", None)
-        st.query_params.clear()
-        st.rerun()
-
-    elif action == "delete_folders":
-        try:
-            folders: list[str] = json.loads(params.get("folders", "[]"))
-            for fld in folders:
-                if fld.startswith(f"{MASTER_FEATURED_PREFIX}/"):
-                    continue  # never delete master archive
-                for obj in list_objects(prefix=fld):
-                    try:
-                        delete_object(obj["Key"])
-                    except Exception:
-                        pass
-                st.session_state.pop(f"thumbs_{fld}", None)
-        except Exception:
-            pass
-        st.query_params.clear()
-        st.rerun()
-
-    # ── Fetch all bucket objects ─────────────────────────────────────────────
     with st.spinner("Loading bucket…"):
         try:
             all_objects = list_objects(prefix="")
@@ -1000,7 +813,9 @@ def page_upload() -> None:
         )
         banner_quality = st.slider("Quality", 60, 100, DEFAULT_QUALITY, key="q_banner")
         if banner_file:
-            st.caption(f"Staged → `{MASTER_FEATURED_PREFIX}/{prefix or '<prefix>'}-featured.webp` ⭐")
+            st.caption(
+                f"Staged → `{MASTER_FEATURED_PREFIX}/{prefix or '<prefix>'}-featured.webp` ⭐"
+            )
 
     with col_story:
         _col_header(
@@ -1129,7 +944,6 @@ def page_settings() -> None:
         "Credentials are loaded from Streamlit secrets (Streamlit Cloud) "
         "or environment variables (Replit/local)."
     )
-
     rows_md = ["| Variable | Status |", "|---|:---:|"]
     for var in ["R2_ENDPOINT_URL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]:
         rows_md.append(f"| `{var}` | {'✅ Set' if _get_secret(var) else '❌ Missing'} |")
@@ -1169,8 +983,7 @@ def main() -> None:
         with open(_IVAN_IMG_PATH, "rb") as _f:
             _b64 = base64.b64encode(_f.read()).decode()
         st.sidebar.markdown(
-            f"<img src='data:image/png;base64,{_b64}' "
-            f"style='width:100%;border-radius:8px;'>",
+            f"<img src='data:image/png;base64,{_b64}' style='width:100%;border-radius:8px;'>",
             unsafe_allow_html=True,
         )
     else:

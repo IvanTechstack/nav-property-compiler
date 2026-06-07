@@ -33,15 +33,19 @@ A Streamlit-based property media management tool for NAV brokerage — optimizes
 - **`st.secrets` + `os.environ` fallback**: `_get_secret()` checks `st.secrets` first (Streamlit Cloud) then `os.environ` (Replit/local) — same codebase works in both environments.
 - **Single-file app**: All pages, R2 helpers, and image processors live in `main.py` for simplicity.
 - **Full binary path in workflow**: Run command uses `/home/runner/workspace/.pythonlibs/bin/streamlit` to prevent Nix's system streamlit 0.50.2 (Python 3.9) from intercepting.
+- **Pure native Streamlit Browse** (June 2026 rewrite): `st.components.v1.html()` was removed in Streamlit 1.57.0. All Browse UI uses `st.columns()` + `st.button()` + `st.checkbox()` + `st.markdown()` only. Zero iframes, zero JavaScript, zero `window.parent` hacks. Navigation is pure `st.session_state` + `st.rerun()`.
 
 ## Product
 
 Three-column upload pipeline keyed by property name:
 - **Portfolio Gallery** — batch upload, resizes to max 800px height, named `[PREFIX]-01.webp`, `[PREFIX]-02.webp` …
-- **Featured Banner** — single image, forced to exactly 1920px wide, named `[PREFIX]-banner.webp`
+- **Featured Banner** — single image, forced to exactly 1920px wide, archived to `000_MASTER_FEATURED_IMAGES/`
 - **Story Cover** — single image or GIF, max 600px wide, named `[PREFIX]-story-cover.[ext]`
-- All assets land in `properties/[PREFIX]/` in the R2 bucket
-- **Browse page** — folder selectbox filters by property, 3-column thumbnail grid, download + delete actions
+- All property assets land in `properties/[PREFIX]/` in the R2 bucket
+
+### Browse page
+- **Folder grid** — `st.columns(4)` with one `st.button()` per folder (opens it); `st.checkbox()` styled as selection circle below each card; bulk-delete with two-step confirmation
+- **Image grid** — 3-column `st.markdown()` 16:9 thumbnails; `st.checkbox()` per image for selection; Delete Selected pinned to top header; sort radio (Custom/A→Z/Z→A/Date); 📌 Save Order writes `sort_order.json` to R2; ↕ Reverse toggle
 - **Settings page** — credential status, connection test, CORS config block
 
 ## User preferences
@@ -54,9 +58,23 @@ Three-column upload pipeline keyed by property name:
 
 - **Always use full streamlit binary path** in the workflow run command — `streamlit` on PATH resolves to Nix's 0.50.2 (Python 3.9) which conflicts with our 1.57.0 package
 - **Never use `st.image()` or `st.sidebar.image()`** — both crash due to numpy/libstdc++ failure; use base64 HTML `<img>` instead
-- **`st.table()` also uses numpy** — use `st.markdown()` with a markdown table instead
+- **Never use `st.components.v1.html()`** — removed in Streamlit 1.57.0 (June 2026); use native Streamlit primitives only
+- **Never use `st.table()`** — uses numpy; use `st.markdown()` with a markdown table instead
+- **Never use `window.parent` or `window.top` JS navigation** — iframes no longer used; all routing is `st.session_state` + `st.rerun()`
 - The `mockup-sandbox` artifact kind is non-deployable via Replit's publish panel — use Streamlit Community Cloud (see `.streamlit/secrets.toml.example` for secrets setup)
 - `Ivan .png` has a space in the filename — keep it exactly as-is (code references that exact path)
+- `_safe_key(s)` helper sanitises R2 key paths into valid Streamlit widget keys (`[^a-zA-Z0-9_-]` → `_`)
+
+## Browse page state model
+
+- `st.session_state["browse_open_folder"]` — currently open folder path (e.g. `properties/123-main-st/`); absent = show folder grid
+- `st.session_state["sel_folder_{safe_key}"]` — checkbox state per folder card (bool)
+- `st.session_state["sel_img_{safe_key}"]` — checkbox state per image (bool)
+- `st.session_state["thumbs_{folder}"]` — dict of `{key: base64_jpeg}` thumbnail cache per folder
+- `st.session_state["browse_sort"]` — current sort mode radio value
+- `st.session_state["browse_reversed"]` — bool, ↕ reverse toggle
+- `st.session_state["confirm_bulk_delete"]` — list of folders pending bulk deletion confirm
+- `st.session_state["confirm_wipe"]` — folder path pending wipe confirm
 
 ## Deployment
 
