@@ -1,43 +1,16 @@
-modules = ["nodejs-24", "python-3.11"]
-
-[deployment]
-router = "application"
-deploymentTarget = "autoscale"
-
-[deployment.postBuild]
-args = ["pnpm", "store", "prune"]
-env = { "CI" = "true" }
-
-[workflows]
+run = "python3 -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000"
+modules = ["python-3.11"]
 
 [agent]
-stack = "PNPM_WORKSPACE"
 expertMode = true
 
-[postMerge]
-path = "scripts/post-merge.sh"
-timeoutMs = 20000
+[nix]
+packages = ["streamlit"]
 
 [[ports]]
 localPort = 8000
 externalPort = 8000
 
 [[ports]]
-localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 8081
-externalPort = 80
-
-[[ports]]
-localPort = 8099
-externalPort = 8099
-
-[[ports]]
 localPort = 8501
-externalPort = 3000
-
-[nix]
-packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "streamlit", "tcl", "tk", "zlib"]
-channel = "stable-25_05"
+externalPort = 80

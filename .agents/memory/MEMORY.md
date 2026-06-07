@@ -1,0 +1,2 @@
+- [Nix streamlit binary conflict](nix-streamlit-conflict.md) — full .pythonlibs binary path required; PYTHONPATH must be python3.11 (not python3.12); Pillow ABI mismatch otherwise
+- [No numpy in Nix](no-numpy-nix.md) — st.image(), st.sidebar.image(), st.table() all call numpy; use PIL→base64→HTML img instead
