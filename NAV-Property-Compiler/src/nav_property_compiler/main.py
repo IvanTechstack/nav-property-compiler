@@ -220,6 +220,8 @@ def _build_compile_payload(prefix: str, result: dict, studeo_url: str = "") -> d
     return {
         "property_id": prefix,
         "studeo_url": studeo_url,
+        "media_type": result.get("media_type", "🖼️ Image"),
+        "video_url":  result.get("video_url", ""),
         "stats": result.get("stats", {}),
         "full_description": result.get("full_description", ""),
         "neighborhood": result.get("neighborhood", ""),
@@ -236,6 +238,8 @@ def _populate_editor_state(property_id: str, data: dict, studeo_url: str = "") -
     stats = data.get("stats", {})
     st.session_state["ed_prefix"]        = property_id
     st.session_state["ed_studeo_url"]    = data.get("studeo_url", studeo_url)
+    st.session_state["ed_media_type"]    = data.get("media_type", "🖼️ Image")
+    st.session_state["ed_video_url"]     = data.get("video_url", "")
     st.session_state["ed_price"]         = stats.get("price", "")
     st.session_state["ed_mls"]           = stats.get("mls", "")
     st.session_state["ed_address"]       = stats.get("address", "")
@@ -267,11 +271,13 @@ def _auto_format_content(text: str) -> str:
 
     Rules (applied in order):
     1. If text already contains HTML tags → return verbatim (no double-processing).
-    2. Split on one or more blank lines (\\n\\n+).
-    3. For each block:
-       - If the FIRST LINE is ≤ 80 chars, starts with a capital letter, and
-         has a colon within its first 50 characters → treat as subheadline:
-         wrap the full first line in <h3> and remaining lines in <p>.
+    2. H2 title extraction: if the absolute first line is ≤ 70 chars, starts with
+       a capital, contains NO colon, and does NOT end with sentence punctuation
+       (.!?) → promote it to <h2 class="desc-title"> and process the remainder.
+    3. Split the remainder on one or more blank lines (\\n\\n+).
+    4. For each block:
+       - First line ≤ 80 chars, starts with capital, has a colon within first
+         50 chars → wrap first line in <h3>, remaining lines in <p>.
        - Otherwise → join all lines with a space and wrap in <p>.
     """
     if not text or not text.strip():
@@ -279,8 +285,27 @@ def _auto_format_content(text: str) -> str:
     if _HTML_TAG_RE.search(text):
         return text
 
-    blocks = [b.strip() for b in re.split(r'\n{2,}', text) if b.strip()]
-    parts: list[str] = []
+    all_lines   = text.splitlines()
+    first_line  = all_lines[0].strip() if all_lines else ""
+    h2_html     = ""
+    remainder   = text
+
+    if (
+        first_line
+        and len(first_line) <= 70
+        and ":" not in first_line
+        and first_line[0].isupper()
+        and not re.search(r'[.!?]$', first_line)
+        and len(first_line.split()) >= 2
+    ):
+        h2_html   = f'<h2 class="desc-title">{first_line}</h2>'
+        remainder = "\n".join(all_lines[1:]).strip()
+
+    if not remainder.strip():
+        return h2_html or text
+
+    blocks = [b.strip() for b in re.split(r'\n{2,}', remainder) if b.strip()]
+    parts: list[str] = ([h2_html] if h2_html else [])
 
     for block in blocks:
         lines  = block.splitlines()
@@ -327,11 +352,13 @@ def _editor_to_result() -> dict:
             "year":     st.session_state.get("ed_year", ""),
             "lot_size": st.session_state.get("ed_lot_size", ""),
         },
-        # Auto-format: HTML passes through; plain text gets <p>/<h3> wrapping
+        # Auto-format: HTML passes through; plain text gets <h2>/<h3>/<p> wrapping
         "full_description": _auto_format_content(st.session_state.get("ed_description", "")),
         "neighborhood":     _auto_format_content(st.session_state.get("ed_neighborhood", "")),
         "location":         _auto_format_content(st.session_state.get("ed_location", "")),
         "city_tab":         _auto_format_content(st.session_state.get("ed_city_tab", "")),
+        "media_type": st.session_state.get("ed_media_type", "🖼️ Image"),
+        "video_url":  st.session_state.get("ed_video_url", ""),
         "bullets_24":       st.session_state.get("ed_bullets_24", []),
         "flyer_bullets": [
             b.lstrip("•").strip()
@@ -768,6 +795,25 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     year     = stats.get("year", "")
     mls_no   = stats.get("mls", "")
 
+    media_type = data.get("media_type", "🖼️ Image")
+    video_url  = data.get("video_url", "").strip()
+
+    # ── Video ID helpers ───────────────────────────────────────────────────
+    vimeo_id   = ""
+    youtube_id = ""
+    if "vimeo" in video_url.lower():
+        m = re.search(r'vimeo\.com/(?:video/)?(\d+)', video_url)
+        if m:
+            vimeo_id = m.group(1)
+    elif video_url:
+        m = (
+            re.search(r'[?&]v=([A-Za-z0-9_-]{11})', video_url)
+            or re.search(r'youtu\.be/([A-Za-z0-9_-]{11})', video_url)
+            or re.search(r'embed/([A-Za-z0-9_-]{11})', video_url)
+        )
+        if m:
+            youtube_id = m.group(1)
+
     # ── R2 assets ─────────────────────────────────────────────────────────
     folder = f"properties/{prefix}/"
     try:
@@ -998,6 +1044,16 @@ a:hover{text-decoration:underline}
 .studeo-right{text-align:center}
 @media(max-width:700px){.studeo{grid-template-columns:1fr}.studeo-right{margin-top:1.5rem}}
 
+/* ── Responsive Video Player ── */
+.video-wrap{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;
+  background:#0d0d0d;border-top:3px solid #990000}
+.video-wrap iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+
+/* ── Description panel H2 title banner ── */
+.desc-title{font-size:1.35rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em;
+  line-height:1.25;margin-bottom:1.1rem;padding-bottom:.6rem;
+  border-bottom:2px solid #eaeaea}
+
 /* ── Map ── */
 .map-wrap{height:420px;overflow:hidden;border-top:1px solid #eaeaea}
 .map-wrap iframe{width:100%;height:100%;border:0}
@@ -1040,8 +1096,21 @@ a:hover{text-decoration:underline}
   <div class="mobile-price">{price}</div>
 </div>
 
-<!-- Gallery Matrix -->
-{gallery_section}
+<!-- Media Block: Video Player or Gallery Matrix -->
+{(
+    f'<div class="video-wrap">'
+    f'<iframe src="https://player.vimeo.com/video/{vimeo_id}'
+    f'?title=0&byline=0&portrait=0"'
+    f' allow="fullscreen; picture-in-picture" allowfullscreen></iframe>'
+    f'</div>'
+) if (media_type == "🎥 Vimeo Video" and vimeo_id) else (
+    f'<div class="video-wrap">'
+    f'<iframe src="https://www.youtube.com/embed/{youtube_id}'
+    f'?controls=1&rel=0&modestbranding=1&playsinline=1"'
+    f' allow="fullscreen; accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"'
+    f' allowfullscreen></iframe>'
+    f'</div>'
+) if (media_type == "📺 YouTube Video" and youtube_id) else gallery_section}
 
 <!-- Property Highlights -->
 <section class="features">
@@ -1966,6 +2035,34 @@ def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
     with ac[1]: st.text_input("City / ST", key="ed_city_name")
 
     st.markdown("<div style='margin:.6rem 0'></div>", unsafe_allow_html=True)
+
+    # ── Media type selector ──────────────────────────────────────────────────
+    st.markdown(
+        "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
+        "text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem'>"
+        "Media Type</div>",
+        unsafe_allow_html=True,
+    )
+    mc1, mc2 = st.columns([2, 3])
+    with mc1:
+        st.radio(
+            "Media Type",
+            options=["🖼️ Image", "🎥 Vimeo Video", "📺 YouTube Video"],
+            key="ed_media_type",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    with mc2:
+        ed_mt = st.session_state.get("ed_media_type", "🖼️ Image")
+        if ed_mt in ("🎥 Vimeo Video", "📺 YouTube Video"):
+            st.text_input(
+                "Video URL",
+                key="ed_video_url",
+                placeholder="Paste full Vimeo or YouTube URL here",
+                label_visibility="collapsed",
+            )
+
+    st.markdown("<div style='margin:.25rem 0'></div>", unsafe_allow_html=True)
 
     # ── Editable content tabs ────────────────────────────────────────────────
     t1, t2, t3, t4 = st.tabs(["📝 Description", "🏘 Neighborhood", "📍 Location", "🏙 City"])
