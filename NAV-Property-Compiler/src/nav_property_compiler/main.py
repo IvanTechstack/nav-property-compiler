@@ -404,7 +404,8 @@ div.action-bar {{
 # ---------------------------------------------------------------------------
 
 _AI_SYSTEM = (
-    "You are a luxury real estate copywriter for NAV brokerage. "
+    "You are an expert real estate and travel journalist writing for a luxury brokerage. "
+    "Your copy is SEO-optimised, vivid, and editorial — never generic or salesy. "
     "Return ONLY valid JSON — no markdown fences, no commentary."
 )
 
@@ -419,13 +420,14 @@ Parse the MLS listing below and return a single JSON object with these exact key
     "beds": "bedrooms",
     "baths": "bathrooms e.g. 3.5",
     "sqft": "square footage with commas",
+    "lot_size": "lot size with units e.g. 0.25 acres",
     "year": "year built",
     "price": "$X,XXX,XXX"
   }},
-  "full_description": "3 rich marketing paragraphs each wrapped in <p> tags. Specific architecture, interiors, finishes.",
-  "neighborhood": "1-2 paragraphs <p> about location, walkability, schools, amenities.",
-  "lifestyle": "1-2 paragraphs <p> about the lifestyle: entertaining, family, outdoor living.",
-  "agent_bio": "1 professional closing paragraph <p> from NAV brokerage mentioning the address.",
+  "full_description": "EXACTLY TWO rich, SEO-optimised paragraphs in <p> tags. Rewrite the raw listing into an elegant lifestyle narrative — lead with architectural character, then paint the interior: finishes, light, flow, standout features. No generic filler.",
+  "neighborhood": "EXACTLY TWO rich paragraphs in <p> tags written by a local expert. Name specific schools (with ratings if known), parks, walking trails, tennis courts, coffee shops, farmers markets, and walkability score. Make it hyper-local and factual.",
+  "location": "EXACTLY TWO rich paragraphs in <p> tags written by a commuter and geography specialist. Cover exact mileage ranges to the nearest freeway, downtown core, airport, and 2-3 notable landmarks or natural attractions. Mention transit options and drive times to neighboring cities.",
+  "city_tab": "EXACTLY TWO rich paragraphs in <p> tags written in high-end travel magazine style. Capture unique culture, culinary scene, outdoor recreation, arts, why buyers flock to this city. Write as if pitching the destination to a discerning Condé Nast reader.",
   "bullets_24": ["exactly 24 concise property feature bullets, each 3-8 words"],
   "flyer_bullets": ["exactly 6 compelling one-line bullets for a print flyer"],
   "social_post": "Instagram/Facebook caption with emojis and hashtags at end (plain text, use newlines)"
@@ -631,26 +633,43 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     except Exception:
         banner_url = ""
 
-    # ── Thumbnail slider strip (replaces static grid) ─────────────────────
+    # ── Lightbox gallery ───────────────────────────────────────────────────
     if gallery_urls:
+        lb_urls_js = json.dumps(gallery_urls)
         thumb_items = "\n".join(
             f'  <div class="thumb-item{" active" if i == 0 else ""}" '
-            f'onclick="swapHero(this,\'{u}\')">'
+            f'onclick="lbOpen({i})">'
             f'<img src="{u}" alt="Photo {i+1}" loading="lazy"></div>'
             for i, u in enumerate(gallery_urls)
         )
-        gallery_section = (
-            f"<div class='thumb-strip'>\n{thumb_items}\n</div>\n"
-            "<script>\n"
-            "function swapHero(el,src){\n"
-            "  var h=document.getElementById('hero-main');\n"
-            "  if(h){h.src=src;}\n"
-            "  document.querySelectorAll('.thumb-item').forEach(function(t){"
-            "t.classList.remove('active');});\n"
-            "  el.classList.add('active');\n"
-            "}\n"
-            "</script>"
-        )
+        gallery_section = f"""<div class='thumb-strip'>
+{thumb_items}
+</div>
+
+<div id="lb" onclick="if(event.target===this)lbClose()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:9999;align-items:center;justify-content:center;flex-direction:column">
+  <button onclick="lbClose()" title="Close" style="position:absolute;top:.8rem;right:1.2rem;background:none;border:none;color:#fff;font-size:2.6rem;line-height:1;cursor:pointer;opacity:.75">&times;</button>
+  <button onclick="lbNav(-1)" title="Previous" style="position:absolute;left:.75rem;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:.55rem 1.1rem;border-radius:8px;transition:background .15s">&#8592;</button>
+  <img id="lb-img" style="max-width:90vw;max-height:86vh;object-fit:contain;border-radius:6px;box-shadow:0 12px 60px rgba(0,0,0,.7)" alt="">
+  <button onclick="lbNav(1)" title="Next" style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:.55rem 1.1rem;border-radius:8px;transition:background .15s">&#8594;</button>
+  <div id="lb-count" style="color:rgba(255,255,255,.5);font-size:.78rem;margin-top:.9rem;letter-spacing:.04em"></div>
+</div>
+<script>
+(function(){{
+  var lb=document.getElementById('lb');
+  var urls={lb_urls_js};
+  var idx=0;
+  function show(){{document.getElementById('lb-img').src=urls[idx];document.getElementById('lb-count').textContent=(idx+1)+' / '+urls.length;}}
+  window.lbOpen=function(i){{idx=i;show();lb.style.display='flex';}};
+  window.lbClose=function(){{lb.style.display='none';}};
+  window.lbNav=function(d){{idx=(idx+d+urls.length)%urls.length;show();}};
+  document.addEventListener('keydown',function(e){{
+    if(lb.style.display==='none')return;
+    if(e.key==='ArrowLeft')lbNav(-1);
+    else if(e.key==='ArrowRight')lbNav(1);
+    else if(e.key==='Escape')lbClose();
+  }});
+}})();
+</script>"""
     else:
         gallery_section = ""
 
@@ -674,8 +693,8 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     tabs_content = {
         "Description":  data.get("full_description", ""),
         "Neighborhood": data.get("neighborhood", ""),
-        "Lifestyle":    data.get("lifestyle", ""),
-        "Agent":        data.get("agent_bio", ""),
+        "Location":     data.get("location", ""),
+        "City":         data.get("city_tab", ""),
     }
     tab_inputs = tab_labels = tab_panels = tab_css_show = ""
     for i, (name, content) in enumerate(tabs_content.items(), 1):
@@ -697,7 +716,8 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     if story_cover_url:
         studeo_right_html = (
             f'<a href="{studeo_link}" target="_blank" rel="noopener">'
-            f'<img src="{story_cover_url}" alt="Story Cover" '
+            f'<img src="{story_cover_url}" alt="Story Cover" loading="eager" '
+            f'decoding="async" '
             f'style="width:100%;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.12);'
             f'display:block;cursor:pointer"></a>'
         )
@@ -774,7 +794,7 @@ a:hover{text-decoration:underline}
 }
 
 /* ── Thumbnail strip slider ── */
-.thumb-strip{display:flex;gap:4px;margin:4px 0 0;background:#0d0d0d;overflow-x:auto;
+.thumb-strip{display:flex;gap:4px;margin:4px 0 0;background:#fff;overflow-x:auto;
   scrollbar-width:thin;scrollbar-color:#444 #0d0d0d}
 .thumb-strip::-webkit-scrollbar{height:4px}
 .thumb-strip::-webkit-scrollbar-track{background:#0d0d0d}
@@ -1754,10 +1774,10 @@ def _render_compile_results(prefix: str, result: dict, studeo_url: str, mode: st
         st.markdown(result.get("full_description", ""), unsafe_allow_html=True)
     with st.expander("🏘 Neighborhood", expanded=False):
         st.markdown(result.get("neighborhood", ""), unsafe_allow_html=True)
-    with st.expander("🌅 Lifestyle", expanded=False):
-        st.markdown(result.get("lifestyle", ""), unsafe_allow_html=True)
-    with st.expander("🤝 Agent Bio", expanded=False):
-        st.markdown(result.get("agent_bio", ""), unsafe_allow_html=True)
+    with st.expander("📍 Location", expanded=False):
+        st.markdown(result.get("location", ""), unsafe_allow_html=True)
+    with st.expander("🏙 City", expanded=False):
+        st.markdown(result.get("city_tab", ""), unsafe_allow_html=True)
 
     st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
 
