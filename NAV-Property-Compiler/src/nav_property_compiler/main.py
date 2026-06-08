@@ -631,15 +631,28 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     except Exception:
         banner_url = ""
 
-    # ── Gallery HTML ───────────────────────────────────────────────────────
+    # ── Thumbnail slider strip (replaces static grid) ─────────────────────
     if gallery_urls:
-        gallery_items = "\n".join(
-            f'  <a href="{u}" target="_blank"><img src="{u}" alt="Photo {i+1}" loading="lazy"></a>'
+        thumb_items = "\n".join(
+            f'  <div class="thumb-item{" active" if i == 0 else ""}" '
+            f'onclick="swapHero(this,\'{u}\')">'
+            f'<img src="{u}" alt="Photo {i+1}" loading="lazy"></div>'
             for i, u in enumerate(gallery_urls)
         )
-        gallery_section = f"<section class='gallery'>\n{gallery_items}\n</section>"
+        gallery_section = (
+            f"<div class='thumb-strip'>\n{thumb_items}\n</div>\n"
+            "<script>\n"
+            "function swapHero(el,src){\n"
+            "  var h=document.getElementById('hero-main');\n"
+            "  if(h){h.src=src;}\n"
+            "  document.querySelectorAll('.thumb-item').forEach(function(t){"
+            "t.classList.remove('active');});\n"
+            "  el.classList.add('active');\n"
+            "}\n"
+            "</script>"
+        )
     else:
-        gallery_section = "<section class='gallery'><p style='padding:2rem;color:#aaa'>Gallery images will appear here after upload.</p></section>"
+        gallery_section = ""
 
     # ── Property Highlights: 6 fixed + 18 dynamic ─────────────────────────
     fixed_6 = [
@@ -709,10 +722,11 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
 </div>"""
 
     hero_html = ""
-    if banner_url:
+    initial_src = banner_url or (gallery_urls[0] if gallery_urls else "")
+    if initial_src:
         hero_html = (
             f'<div class="hero">'
-            f'<img src="{banner_url}" alt="{address}">'
+            f'<img id="hero-main" src="{initial_src}" alt="{address}">'
             f'{stat_card_html}'
             f'</div>'
         )
@@ -759,21 +773,27 @@ a:hover{text-decoration:underline}
   .mobile-header{display:block}
 }
 
-/* ── Gallery grid ── */
-.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:1.5rem 0}
-.gallery a{display:block;overflow:hidden;aspect-ratio:4/3}
-.gallery img{width:100%;height:100%;object-fit:cover;transition:transform .3s}
-.gallery a:hover img{transform:scale(1.04)}
-@media(max-width:600px){.gallery{grid-template-columns:repeat(2,1fr)}}
+/* ── Thumbnail strip slider ── */
+.thumb-strip{display:flex;gap:4px;margin:4px 0 0;background:#0d0d0d;overflow-x:auto;
+  scrollbar-width:thin;scrollbar-color:#444 #0d0d0d}
+.thumb-strip::-webkit-scrollbar{height:4px}
+.thumb-strip::-webkit-scrollbar-track{background:#0d0d0d}
+.thumb-strip::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
+.thumb-item{flex:0 0 20%;max-width:20%;cursor:pointer;overflow:hidden;aspect-ratio:4/3;
+  opacity:.6;transition:opacity .2s;outline:2px solid transparent;outline-offset:-2px}
+.thumb-item.active,.thumb-item:hover{opacity:1;outline:2px solid #990000}
+.thumb-item img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+@media(max-width:600px){.thumb-item{flex:0 0 33.333%;max-width:33.333%}}
 
 /* ── Feature bullets ── */
 .features{padding:2rem 2.5rem;background:#fafafa}
 .features h2{font-size:1.1rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;
   color:#990000;margin-bottom:1.2rem;border-bottom:2px solid #990000;padding-bottom:.4rem}
-.feat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.55rem}
+.feat-grid{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-flow:column;
+  grid-template-rows:repeat(6,auto);gap:.55rem}
 .feat{font-size:.82rem;color:#333;display:flex;align-items:flex-start;gap:.4rem;line-height:1.35}
 .dot{color:#990000;flex-shrink:0;font-size:.6rem;margin-top:.2rem}
-@media(max-width:700px){.feat-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.feat-grid{grid-template-columns:repeat(2,1fr);grid-auto-flow:row;grid-template-rows:none}}
 
 /* ── CSS Radio Tabs ── */
 .tabs-wrap{padding:2rem 2.5rem}
@@ -878,8 +898,7 @@ a:hover{text-decoration:underline}
 
 <!-- Footer -->
 <footer class="footer">
-  <strong>NAV Brokerage</strong> &nbsp;|&nbsp; {address} &nbsp;|&nbsp; MLS# {mls_no}<br>
-  {data.get("agent_bio", "")}
+  Property page created by Ivan &nbsp;|&nbsp; {address} &nbsp;|&nbsp; MLS# {mls_no}
 </footer>
 
 </body>
@@ -1590,14 +1609,19 @@ def page_upload() -> None:
             try:
                 raw = story_file.read()
                 src_ext = story_file.name.rsplit(".", 1)[-1].lower()
-                data, out_ext = process_story_cover(raw, quality=story_quality, src_ext=src_ext)
-                ct = "image/gif" if out_ext == "gif" else "image/webp"
+                if src_ext == "gif":
+                    # Bypass compression — upload raw GIF to preserve animation frames
+                    data, out_ext, ct = raw, "gif", "image/gif"
+                else:
+                    data, out_ext = process_story_cover(raw, quality=story_quality, src_ext=src_ext)
+                    ct = "image/webp"
                 r2_key = f"properties/{prefix}/{prefix}-story-cover.{out_ext}"
                 upload_object(r2_key, data, ct)
                 savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
                 st.success(
                     f"✓ `{prefix}-story-cover.{out_ext}` — "
-                    f"{_fmt_bytes(len(data))} ({savings:+.0f}%)"
+                    f"{_fmt_bytes(len(data))}"
+                    f"{' (raw GIF — animation preserved)' if out_ext == 'gif' else f' ({savings:+.0f}%)'}"
                 )
                 total_ok += 1
             except Exception as exc:
