@@ -1,0 +1,13 @@
+Let's upgrade main.py to transition our generator into an interactive, cloud-persistent staging editor. Please implement the following code adjustments:
+
+1. R2 JSON Persistence Layer:
+   - Create two background helper functions using our existing boto3 client connection: save_property_json(property_id, data_dict) and load_property_json(property_id). 
+   - When a property is compiled, automatically bundle all stats, the 4 text tabs, flyer bullets, and R2 asset URLs into a single structured dictionary and upload it as 'properties/{property_id}/data.json' with content-type 'application/json'.
+   - Add an initial startup routine that scans the 'properties/' directory prefixes in the R2 bucket and populates a st.selectbox dropdown at the very top of the app labeled '📂 Load Existing Listing'. Selecting a property must trigger load_property_json(), pull the data.json payload, and inject it straight into st.session_state to populate the app workspace state immediately.
+
+2. Fully Interactive Staging Editor:
+   - Convert all extracted numerical display stats blocks (Price, MLS#, Beds, Baths, Sq Ft, Year Built, Lot Size) from static cards into editable st.text_input widgets. Pre-populate them with the loaded session state or AI-extracted values.
+   - Convert the 4 accordion content display sections (Description, Neighborhood, Location, City Profile) into large multi-line st.textarea widgets. Pre-populate them with the AI journalist's 2-paragraph output strings.
+   - Re-route the final HTML string compiler function ('_for_sale_html') to build its layout using the live string values actively sitting in these text inputs and textarea boxes on the screen, rather than pulling from raw, non-editable background script variables. This allows on-the-fly edits, text overrides, or price updates to cleanly register when compiling.
+
+Please apply these structural changes directly, ensure the app boots cleanly with no broken session state variables, and automatically push the updated codebase to GitHub.
