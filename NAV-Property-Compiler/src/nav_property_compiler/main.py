@@ -258,12 +258,62 @@ def _populate_editor_state(property_id: str, data: dict, studeo_url: str = "") -
     st.session_state.pop("ed_html_out", None)
 
 
+_HTML_TAG_RE = re.compile(r'<(p|h[1-6]|strong|em|ul|ol|li|br|div)\b', re.IGNORECASE)
+_HEADLINE_RE  = re.compile(r'^[A-Z][^.!?\n]{0,79}:')
+
+
+def _auto_format_content(text: str) -> str:
+    """Convert plain pasted text into clean HTML for the listing template.
+
+    Rules (applied in order):
+    1. If text already contains HTML tags → return verbatim (no double-processing).
+    2. Split on one or more blank lines (\\n\\n+).
+    3. For each block:
+       - If the FIRST LINE is ≤ 80 chars, starts with a capital letter, and
+         has a colon within its first 50 characters → treat as subheadline:
+         wrap the full first line in <h3> and remaining lines in <p>.
+       - Otherwise → join all lines with a space and wrap in <p>.
+    """
+    if not text or not text.strip():
+        return text
+    if _HTML_TAG_RE.search(text):
+        return text
+
+    blocks = [b.strip() for b in re.split(r'\n{2,}', text) if b.strip()]
+    parts: list[str] = []
+
+    for block in blocks:
+        lines  = block.splitlines()
+        first  = lines[0].strip()
+        rest   = " ".join(l.strip() for l in lines[1:] if l.strip())
+
+        colon_pos   = first.find(":")
+        is_headline = (
+            first
+            and first[0].isupper()
+            and 0 <= colon_pos <= 50
+            and len(first) <= 80
+        )
+
+        if is_headline:
+            parts.append(f"<h3>{first}</h3>")
+            if rest:
+                parts.append(f"<p>{rest}</p>")
+        else:
+            body = " ".join(l.strip() for l in lines if l.strip())
+            parts.append(f"<p>{body}</p>")
+
+    return "\n".join(parts)
+
+
 def _editor_to_result() -> dict:
     """Reconstruct the AI result dict from live staging-editor session_state values.
 
-    Content fields (description, neighborhood, location, city_tab) are passed
-    through verbatim so any HTML tags (<h3>, <strong>, <p>) typed or pasted into
-    the text areas are preserved exactly in the generated HTML template.
+    Content fields (description, neighborhood, location, city_tab) are run through
+    _auto_format_content() which either passes HTML through verbatim or converts
+    plain pasted text (double-newline paragraphs, headline lines ending in ':')
+    into proper <p> and <h3> markup so the compiled template renders with
+    correct spacing and typography.
     """
     return {
         "stats": {
@@ -277,11 +327,11 @@ def _editor_to_result() -> dict:
             "year":     st.session_state.get("ed_year", ""),
             "lot_size": st.session_state.get("ed_lot_size", ""),
         },
-        # Verbatim passthrough — HTML tags in these values render in the final template
-        "full_description": st.session_state.get("ed_description", ""),
-        "neighborhood":     st.session_state.get("ed_neighborhood", ""),
-        "location":         st.session_state.get("ed_location", ""),
-        "city_tab":         st.session_state.get("ed_city_tab", ""),
+        # Auto-format: HTML passes through; plain text gets <p>/<h3> wrapping
+        "full_description": _auto_format_content(st.session_state.get("ed_description", "")),
+        "neighborhood":     _auto_format_content(st.session_state.get("ed_neighborhood", "")),
+        "location":         _auto_format_content(st.session_state.get("ed_location", "")),
+        "city_tab":         _auto_format_content(st.session_state.get("ed_city_tab", "")),
         "bullets_24":       st.session_state.get("ed_bullets_24", []),
         "flyer_bullets": [
             b.lstrip("•").strip()
