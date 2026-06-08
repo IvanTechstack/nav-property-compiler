@@ -1,0 +1,11 @@
+Let's apply our final precision optimization and copywriting sweep to main.py to elevate the layout and the AI content depth. Please update the HTML string generator with these exact requirements:
+
+1. Pure White Lightbox Gallery: Change the background of the thumbnail row wrapper to pure white. Completely replace the inline image-swapping script with a native, pure CSS/JS Lightbox Modal Overlay. Clicking any gallery thumbnail must instantly launch a full-screen modal centered over the webpage with a dimmed background. Incorporate crisp left/right navigation arrows, an 'X' close button, and support for swiping/clicking smoothly through all portfolio photos without forcing the user to scroll.
+2. Deep-Dive Journalist AI Engine: Update the internal background OpenAI API prompt structure to rebrand the 4 summary tabs to exactly: 'Description', 'Neighborhood', 'Location', and 'City'. Instruct the AI to act as an expert real estate and travel journalist, writing exactly TWO rich, compelling, SEO-optimized paragraphs for each section:
+   - 'Description' must rewrite the raw text dump into an elegant lifestyle narrative.
+   - 'Neighborhood' must detail specific local amenities like schools, parks, walking trails, and tennis courts.
+   - 'Location' must focus on local positioning, commuter infrastructure, and exact mileage ranges to neighboring cities, landmarks, or natural attractions.
+   - 'City' must capture a high-end travel writer style focusing on unique culture, quality of life, and why buyers flock to the area.
+3. Strict Animation Preservation: Ensure the Story Cover file asset link rendering explicitly retains its raw, native .gif extension in the final HTML code string. Force the HTML image element markup tag to carry an optimized caching rule to ensure the browser natively displays your page-turning animation loop perfectly without freezing.
+
+Please implement these advanced updates across the master script, ensure it passes a clean virtual runtime boot, and push the verified changes directly to my GitHub repository!
