@@ -439,43 +439,53 @@ MLS TEXT:
 """
 
 
-def _get_openai_client():
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise RuntimeError("openai package not installed — add it to requirements.txt")
-    base_url = _get_secret("AI_INTEGRATIONS_OPENAI_BASE_URL") or None
+def _compile_listing_ai(property_name: str, mls_text: str, studeo_url: str) -> dict:
+    import urllib.request as _ur
+    import urllib.error as _ue
+
     api_key = (
         _get_secret("AI_INTEGRATIONS_OPENAI_API_KEY")
         or _get_secret("OPENAI_API_KEY")
     )
     if not api_key:
         raise RuntimeError(
-            "No OpenAI key found. Set OPENAI_API_KEY or connect the Replit OpenAI integration."
+            "No OpenAI key found. Set OPENAI_API_KEY or add the OpenAI integration in Streamlit secrets."
         )
-    kw: dict = {"api_key": api_key}
-    if base_url:
-        kw["base_url"] = base_url
-    return OpenAI(**kw)
+    base_url = (_get_secret("AI_INTEGRATIONS_OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+    endpoint = f"{base_url}/chat/completions"
 
-
-def _compile_listing_ai(property_name: str, mls_text: str, studeo_url: str) -> dict:
-    client = _get_openai_client()
     msg = _AI_PROMPT.format(
         property_name=property_name or "(not provided)",
         studeo_url=studeo_url or "(not provided)",
         mls_text=mls_text.strip(),
     )
-    resp = client.chat.completions.create(
-        model="gpt-5.4",
-        messages=[
+    payload = json.dumps({
+        "model": "gpt-4o",
+        "messages": [
             {"role": "system", "content": _AI_SYSTEM},
             {"role": "user", "content": msg},
         ],
-        response_format={"type": "json_object"},
-        max_completion_tokens=8192,
+        "response_format": {"type": "json_object"},
+        "max_tokens": 8192,
+    }).encode()
+
+    req = _ur.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    return json.loads(resp.choices[0].message.content or "{}")
+    try:
+        with _ur.urlopen(req, timeout=120) as resp:
+            raw = json.loads(resp.read())
+    except _ue.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise RuntimeError(f"OpenAI API error {exc.code}: {body}") from exc
+
+    return json.loads(raw["choices"][0]["message"]["content"] or "{}")
 
 
 # ---------------------------------------------------------------------------
