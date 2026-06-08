@@ -1411,6 +1411,18 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
+            # ── Download button (lazy — fetches bytes from R2 on click) ───
+            _dl_name = key.split("/")[-1]
+            _dl_mime = "image/gif" if _dl_name.endswith(".gif") else "image/webp"
+            st.download_button(
+                label="📥 Download",
+                data=lambda _k=key: download_object(_k),
+                file_name=_dl_name,
+                mime=_dl_mime,
+                key=f"dl_{safe_k}",
+                use_container_width=True,
+            )
+
     # ── Other (non-image) files ─────────────────────────────────────────────
     if other_keys:
         with st.expander(f"Other files ({len(other_keys)})"):
@@ -1566,13 +1578,20 @@ def page_upload() -> None:
         for idx, f in enumerate(gallery_files):
             prog.progress(idx / len(gallery_files), text=f"{f.name}…")
             raw = f.read()
+            src_ext_g = f.name.rsplit(".", 1)[-1].lower()
             try:
-                data, _ = process_gallery(raw, quality=gallery_quality)
                 seq = str(start_seq + idx).zfill(2)
-                r2_key = f"properties/{prefix}/{prefix}-{seq}.webp"
-                upload_object(r2_key, data, "image/webp")
+                if src_ext_g == "gif":
+                    # Bypass compression — upload raw GIF to preserve animation frames
+                    data, out_ext_g, ct_g = raw, "gif", "image/gif"
+                else:
+                    data, _ = process_gallery(raw, quality=gallery_quality)
+                    out_ext_g, ct_g = "webp", "image/webp"
+                r2_key = f"properties/{prefix}/{prefix}-{seq}.{out_ext_g}"
+                upload_object(r2_key, data, ct_g)
                 savings = (1 - len(data) / len(raw)) * 100 if len(raw) else 0
-                st.success(f"✓ `{prefix}-{seq}.webp` — {_fmt_bytes(len(data))} ({savings:+.0f}%)")
+                note = " (raw GIF — animation preserved)" if out_ext_g == "gif" else f" ({savings:+.0f}%)"
+                st.success(f"✓ `{prefix}-{seq}.{out_ext_g}` — {_fmt_bytes(len(data))}{note}")
                 total_ok += 1
                 try:
                     ti = Image.open(io.BytesIO(data)).convert("RGB")
