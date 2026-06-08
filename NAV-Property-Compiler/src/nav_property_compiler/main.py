@@ -259,7 +259,12 @@ def _populate_editor_state(property_id: str, data: dict, studeo_url: str = "") -
 
 
 def _editor_to_result() -> dict:
-    """Reconstruct the AI result dict from live staging-editor session_state values."""
+    """Reconstruct the AI result dict from live staging-editor session_state values.
+
+    Content fields (description, neighborhood, location, city_tab) are passed
+    through verbatim so any HTML tags (<h3>, <strong>, <p>) typed or pasted into
+    the text areas are preserved exactly in the generated HTML template.
+    """
     return {
         "stats": {
             "price":    st.session_state.get("ed_price", ""),
@@ -272,6 +277,7 @@ def _editor_to_result() -> dict:
             "year":     st.session_state.get("ed_year", ""),
             "lot_size": st.session_state.get("ed_lot_size", ""),
         },
+        # Verbatim passthrough — HTML tags in these values render in the final template
         "full_description": st.session_state.get("ed_description", ""),
         "neighborhood":     st.session_state.get("ed_neighborhood", ""),
         "location":         st.session_state.get("ed_location", ""),
@@ -506,6 +512,9 @@ div.action-bar {{
 _AI_SYSTEM = (
     "You are an expert real estate and travel journalist writing for a luxury brokerage. "
     "Your copy is SEO-optimised, vivid, and editorial — never generic or salesy. "
+    "ALL prose content values must use clean, native inline HTML only: "
+    "<h3> for section subheadlines, <strong> for bold callouts, <p> for paragraph blocks. "
+    "Never output markdown, asterisks, hyphens as bullets, or plain untagged prose. "
     "Return ONLY valid JSON — no markdown fences, no commentary."
 )
 
@@ -524,12 +533,12 @@ Parse the MLS listing below and return a single JSON object with these exact key
     "year": "year built",
     "price": "$X,XXX,XXX"
   }},
-  "full_description": "EXACTLY TWO rich, SEO-optimised paragraphs in <p> tags. Rewrite the raw listing into an elegant lifestyle narrative — lead with architectural character, then paint the interior: finishes, light, flow, standout features. No generic filler.",
-  "neighborhood": "EXACTLY TWO rich paragraphs in <p> tags written by a local expert. Name specific schools (with ratings if known), parks, walking trails, tennis courts, coffee shops, farmers markets, and walkability score. Make it hyper-local and factual.",
-  "location": "EXACTLY TWO rich paragraphs in <p> tags written by a commuter and geography specialist. Cover exact mileage ranges to the nearest freeway, downtown core, airport, and 2-3 notable landmarks or natural attractions. Mention transit options and drive times to neighboring cities.",
-  "city_tab": "EXACTLY TWO rich paragraphs in <p> tags written in high-end travel magazine style. Capture unique culture, culinary scene, outdoor recreation, arts, why buyers flock to this city. Write as if pitching the destination to a discerning Condé Nast reader.",
-  "bullets_24": ["exactly 24 concise property feature bullets, each 3-8 words"],
-  "flyer_bullets": ["exactly 6 compelling one-line bullets for a print flyer"],
+  "full_description": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Section 1 headline covers architectural character and curb appeal; Section 2 covers interiors — finishes, light, flow, standout features. Use <strong> to call out key features inline. SEO-optimised, no filler.",
+  "neighborhood": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Section 1 covers schools (name them with ratings if known), parks, trails. Section 2 covers walkable amenities — coffee shops, farmers markets, tennis courts, restaurants. Use <strong> for specific names. Hyper-local and factual.",
+  "location": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Section 1 covers commuter infrastructure — exact mileage to the nearest freeway on-ramp, downtown core, and transit lines. Section 2 covers geographic positioning — drive times to 2-3 neighboring cities and notable natural attractions or landmarks. Use <strong> for distances.",
+  "city_tab": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Written in high-end travel magazine style. Section 1 captures unique local culture, arts scene, and culinary highlights. Section 2 explains why discerning buyers choose this city — quality of life, outdoor recreation, community character. Use <strong> for standout draws.",
+  "bullets_24": ["exactly 24 concise property feature bullets, each 3-8 words — plain text, no HTML"],
+  "flyer_bullets": ["exactly 6 compelling one-line bullets for a print flyer — plain text, no HTML"],
   "social_post": "Instagram/Facebook caption with emojis and hashtags at end (plain text, use newlines)"
 }}
 
@@ -924,6 +933,10 @@ a:hover{text-decoration:underline}
 .tab-labels label:hover{color:#990000}
 .panel{display:none;line-height:1.8;color:#333;font-size:.95rem}
 .panel p{margin-bottom:1rem}
+.panel h3{font-size:1.06rem;font-weight:800;color:#708090;letter-spacing:.01em;
+  line-height:1.35;margin:1.5rem 0 .45rem}
+.panel h3:first-child{margin-top:0}
+.panel strong{color:#990000;font-weight:700}
 
 /* ── Studeo — white canvas ── */
 .studeo{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:3rem;
