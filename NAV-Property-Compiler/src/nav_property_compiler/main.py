@@ -946,15 +946,21 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
   <div class="hsc-mls">MLS# {mls_no}</div>
 </div>"""
 
+    # Video mode: suppress the static hero entirely so nothing stacks
+    _video_active = (
+        (media_type == "🎥 Vimeo Video" and vimeo_id)
+        or (media_type == "📺 YouTube Video" and youtube_id)
+    )
     hero_html = ""
-    initial_src = banner_url or (gallery_urls[0] if gallery_urls else "")
-    if initial_src:
-        hero_html = (
-            f'<div class="hero">'
-            f'<img id="hero-main" src="{initial_src}" alt="{address}">'
-            f'{stat_card_html}'
-            f'</div>'
-        )
+    if not _video_active:
+        initial_src = banner_url or (gallery_urls[0] if gallery_urls else "")
+        if initial_src:
+            hero_html = (
+                f'<div class="hero">'
+                f'<img id="hero-main" src="{initial_src}" alt="{address}">'
+                f'{stat_card_html}'
+                f'</div>'
+            )
 
     css = """
 *{box-sizing:border-box;margin:0;padding:0}
