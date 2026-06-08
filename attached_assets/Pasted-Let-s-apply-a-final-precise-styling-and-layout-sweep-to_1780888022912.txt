@@ -1,0 +1,13 @@
+Let's apply a final precise styling and layout sweep to main.py to bring the generated HTML template to a 100% perfect match with our brand guidelines. Please refactor the HTML string builder with these exact layout updates:
+
+1. Natural Hero Scaling & Top Bar: Remove all strict max-height/800px restrictions from the main 1920px hero banner container. Let the image display naturally at its native proportions (1080px/1280px). Reinstate the top address layout header bar completely ABOVE the photo canvas. Render the drop-shadowed white stat features card box floating elegantly over the top-right section of the hero photo.
+2. Structured Property Highlights Grid: Retain the header title 'Property Highlights', but hardcode the background container to a clean, bright layout. Force the text array loops to explicitly map the first 6 bullet slots in this strict, immutable order: 1. MLS ID, 2. Bedrooms, 3. Bathrooms, 4. Living Area (Sq Ft), 5. Lot Size, and 6. Year Built. Let the remaining 18 slots handle the dynamic listing data.
+3. Luxury White Story Module: Completely purge the black background container and the red text link button from the Studeo.ai booklet section. Render this module on a pure, clean white canvas. Hardcode the left-hand text column to display this static marketing copy exactly:
+"Every Home Has a Story-Experience This One
+At Navigate Real Estate, we believe every home deserves to have its story told. To the right, you'll find an interactive digital booklet that brings this property to life. Take the tour and explore every detail-from standout features and modern comforts to the neighborhood amenities that make this area such a great place to call home. Click now to watch the story and see if this could be your next chapter.
+
+Click the image to the right and read this home's story."
+Ensure the right-hand column dynamically references the user's uploaded Story Cover image asset link, and wrap that entire image block inside a clickable anchor hyperlink pointing directly to the pasted Studeo.ai Interactive Booklet URL.
+4. Dynamic Google Map Query Pin: Fix the embedded Google Maps iframe URL source generation code. Ensure it cleanly appends the typed property address variable into a dynamic search string ('https://maps.google.com/maps?q=' + encoded_address + '&output=embed') to force an accurate property location pinpoint instead of a generic city view.
+
+Please apply these precise design refinements directly to main.py, check for code stability, and push the updated script straight to my GitHub repository!
