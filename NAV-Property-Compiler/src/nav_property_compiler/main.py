@@ -186,6 +186,106 @@ def delete_object(key: str) -> None:
     get_r2_client().delete_object(Bucket=BUCKET_NAME, Key=key)
 
 
+def save_property_json(property_id: str, data: dict) -> None:
+    payload = json.dumps(data, ensure_ascii=False, indent=2).encode()
+    upload_object(f"properties/{property_id}/data.json", payload, "application/json")
+
+
+def load_property_json(property_id: str) -> dict:
+    raw = download_object(f"properties/{property_id}/data.json")
+    return json.loads(raw)
+
+
+def _list_compiled_properties() -> list[str]:
+    try:
+        objs = list_objects("properties/")
+        seen: set[str] = set()
+        ids: list[str] = []
+        for o in objs:
+            k = o["Key"]
+            if k.endswith("/data.json"):
+                parts = k.split("/")
+                if len(parts) >= 3 and parts[1]:
+                    pid = parts[1]
+                    if pid not in seen:
+                        seen.add(pid)
+                        ids.append(pid)
+        return sorted(ids)
+    except Exception:
+        return []
+
+
+def _build_compile_payload(prefix: str, result: dict, studeo_url: str = "") -> dict:
+    import datetime as _dt
+    return {
+        "property_id": prefix,
+        "studeo_url": studeo_url,
+        "stats": result.get("stats", {}),
+        "full_description": result.get("full_description", ""),
+        "neighborhood": result.get("neighborhood", ""),
+        "location": result.get("location", ""),
+        "city_tab": result.get("city_tab", ""),
+        "bullets_24": result.get("bullets_24", []),
+        "flyer_bullets": result.get("flyer_bullets", []),
+        "social_post": result.get("social_post", ""),
+        "saved_at": _dt.datetime.utcnow().isoformat() + "Z",
+    }
+
+
+def _populate_editor_state(property_id: str, data: dict, studeo_url: str = "") -> None:
+    stats = data.get("stats", {})
+    st.session_state["ed_prefix"]        = property_id
+    st.session_state["ed_studeo_url"]    = data.get("studeo_url", studeo_url)
+    st.session_state["ed_price"]         = stats.get("price", "")
+    st.session_state["ed_mls"]           = stats.get("mls", "")
+    st.session_state["ed_address"]       = stats.get("address", "")
+    st.session_state["ed_city_name"]     = stats.get("city", "")
+    st.session_state["ed_beds"]          = stats.get("beds", "")
+    st.session_state["ed_baths"]         = stats.get("baths", "")
+    st.session_state["ed_sqft"]          = stats.get("sqft", "")
+    st.session_state["ed_year"]          = stats.get("year", "")
+    st.session_state["ed_lot_size"]      = stats.get("lot_size", "")
+    st.session_state["ed_description"]   = data.get("full_description", "")
+    st.session_state["ed_neighborhood"]  = data.get("neighborhood", "")
+    st.session_state["ed_location"]      = data.get("location", "")
+    st.session_state["ed_city_tab"]      = data.get("city_tab", "")
+    st.session_state["ed_bullets_24"]    = data.get("bullets_24", [])
+    st.session_state["ed_flyer_bullets"] = "\n".join(
+        f"• {b}" for b in data.get("flyer_bullets", [])
+    )
+    st.session_state["ed_social_post"]   = data.get("social_post", "")
+    st.session_state["ed_active"]        = True
+    st.session_state.pop("ed_html_out", None)
+
+
+def _editor_to_result() -> dict:
+    """Reconstruct the AI result dict from live staging-editor session_state values."""
+    return {
+        "stats": {
+            "price":    st.session_state.get("ed_price", ""),
+            "mls":      st.session_state.get("ed_mls", ""),
+            "address":  st.session_state.get("ed_address", ""),
+            "city":     st.session_state.get("ed_city_name", ""),
+            "beds":     st.session_state.get("ed_beds", ""),
+            "baths":    st.session_state.get("ed_baths", ""),
+            "sqft":     st.session_state.get("ed_sqft", ""),
+            "year":     st.session_state.get("ed_year", ""),
+            "lot_size": st.session_state.get("ed_lot_size", ""),
+        },
+        "full_description": st.session_state.get("ed_description", ""),
+        "neighborhood":     st.session_state.get("ed_neighborhood", ""),
+        "location":         st.session_state.get("ed_location", ""),
+        "city_tab":         st.session_state.get("ed_city_tab", ""),
+        "bullets_24":       st.session_state.get("ed_bullets_24", []),
+        "flyer_bullets": [
+            b.lstrip("•").strip()
+            for b in st.session_state.get("ed_flyer_bullets", "").splitlines()
+            if b.strip()
+        ],
+        "social_post": st.session_state.get("ed_social_post", ""),
+    }
+
+
 def presigned_url(key: str, expires_in: int = DOWNLOAD_EXPIRY) -> str:
     return get_r2_client().generate_presigned_url(
         "get_object", Params={"Bucket": BUCKET_NAME, "Key": key}, ExpiresIn=expires_in
@@ -1679,23 +1779,28 @@ def page_upload() -> None:
 def page_compile() -> None:
     st.header("Compile Listing")
 
-    # ── Property & inputs ────────────────────────────────────────────────────
-    default_prefix = st.session_state.get("last_gallery_prefix", "")
-    prop_input = st.text_input(
-        "🏠 Property Name or ID",
-        value=default_prefix,
-        placeholder="e.g. 369-kendrick-ln",
-        help="Must match the Upload Images prefix so gallery URLs resolve correctly.",
-    )
-    prefix = prop_input.strip().replace(" ", "-").lower()
+    # ── Load Existing Listing ────────────────────────────────────────────────
+    prop_ids = _list_compiled_properties()
+    load_opts = ["— new listing —"] + prop_ids
+    sel = st.selectbox("📂 Load Existing Listing", load_opts, key="load_prop_sel")
+    if sel != "— new listing —":
+        if st.session_state.get("_loaded_prop_id") != sel:
+            with st.spinner(f"Loading {sel}…"):
+                try:
+                    loaded = load_property_json(sel)
+                    _populate_editor_state(sel, loaded)
+                    st.session_state["_loaded_prop_id"] = sel
+                except Exception as exc:
+                    st.error(f"Failed to load {sel}: {exc}")
 
     st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
 
+    # ── Property & inputs ────────────────────────────────────────────────────
     left_col, right_col = st.columns([3, 1])
     with left_col:
         mls_text = st.text_area(
             "📋 Paste Zillow / MLS Raw Text Dump Here",
-            height=220,
+            height=200,
             placeholder=(
                 "Paste the full listing copy from Zillow, MLS, or any text source here.\n\n"
                 "Include: address, price, beds, baths, sq ft, year built, description, features, agent info…"
@@ -1727,6 +1832,15 @@ def page_compile() -> None:
             unsafe_allow_html=True,
         )
 
+    default_prefix = st.session_state.get("ed_prefix", st.session_state.get("last_gallery_prefix", ""))
+    prop_input = st.text_input(
+        "🏠 Property Name or ID",
+        value=default_prefix,
+        placeholder="e.g. 369-kendrick-ln",
+        help="Must match the Upload Images prefix so gallery URLs resolve correctly.",
+    )
+    prefix = prop_input.strip().replace(" ", "-").lower()
+
     st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
     _, btn_col, _ = st.columns([1, 2, 1])
     with btn_col:
@@ -1737,96 +1851,92 @@ def page_compile() -> None:
             disabled=not (prefix and mls_text.strip()),
         )
 
-    if not compile_clicked:
+    if compile_clicked:
+        try:
+            with st.spinner("GPT-4o parsing listing and generating content…"):
+                result = _compile_listing_ai(prefix, mls_text, studeo_url)
+            _populate_editor_state(prefix, result, studeo_url=studeo_url)
+            st.session_state["_loaded_prop_id"] = None
+            try:
+                payload = _build_compile_payload(prefix, result, studeo_url)
+                save_property_json(prefix, payload)
+                st.success(f"✓ Saved to R2 as `properties/{prefix}/data.json`", icon="💾")
+            except Exception as exc:
+                st.warning(f"R2 auto-save failed (content still displayed): {exc}")
+        except Exception as exc:
+            st.error(f"AI compile failed: {exc}")
+            return
+
+    # ── Staging editor (shown once data is loaded or compiled) ───────────────
+    if not st.session_state.get("ed_active"):
         return
 
-    # ── AI compile ──────────────────────────────────────────────────────────
-    try:
-        with st.spinner("GPT-5 parsing listing and generating content…"):
-            result = _compile_listing_ai(prefix, mls_text, studeo_url)
-        st.session_state["compile_result"] = result
-        st.session_state["compile_prefix"] = prefix
-        st.session_state["compile_studeo"] = studeo_url
-    except Exception as exc:
-        st.error(f"AI compile failed: {exc}")
-        return
-
-    # ── Results section ──────────────────────────────────────────────────────
-    _render_compile_results(prefix, result, studeo_url, mode)
+    _render_staging_editor(prefix or st.session_state.get("ed_prefix", ""), studeo_url, mode)
 
 
-def _render_compile_results(prefix: str, result: dict, studeo_url: str, mode: str) -> None:
-    stats = result.get("stats", {})
-
-    # Stats summary row
-    st.markdown("<div style='margin:1rem 0 .3rem'></div>", unsafe_allow_html=True)
+def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
+    """Interactive staging editor — all fields editable, HTML generated on demand."""
+    st.markdown("<div style='margin:1.25rem 0 .4rem'></div>", unsafe_allow_html=True)
     st.markdown(
         "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
-        "text-transform:uppercase;letter-spacing:.06em'>Extracted Stats</div>",
+        "text-transform:uppercase;letter-spacing:.06em'>📝 Staging Editor</div>",
         unsafe_allow_html=True,
     )
-    s_cols = st.columns(7)
-    for col, (lbl, val) in zip(s_cols, [
-        ("Address",  stats.get("address", "—")),
-        ("Price",    stats.get("price", "—")),
-        ("Beds",     stats.get("beds", "—")),
-        ("Baths",    stats.get("baths", "—")),
-        ("Sq Ft",    stats.get("sqft", "—")),
-        ("Year",     stats.get("year", "—")),
-        ("MLS#",     stats.get("mls", "—")),
-    ]):
+    st.markdown(
+        "<div style='font-size:.73rem;color:#aaa;margin:.25rem 0 .75rem'>"
+        "Edit any field below, then click <b>Generate HTML</b> to rebuild the listing page.</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Editable stat inputs ─────────────────────────────────────────────────
+    sc = st.columns(7)
+    for col, lbl, k in zip(
+        sc,
+        ["Price", "MLS #", "Beds", "Baths", "Sq Ft", "Year", "Lot Size"],
+        ["ed_price", "ed_mls", "ed_beds", "ed_baths", "ed_sqft", "ed_year", "ed_lot_size"],
+    ):
         with col:
-            st.markdown(
-                f"<div style='border:1.5px solid #eaeaea;border-radius:10px;"
-                f"padding:.6rem .7rem;text-align:center'>"
-                f"<div style='font-size:.62rem;color:#aaa;text-transform:uppercase;"
-                f"letter-spacing:.05em'>{lbl}</div>"
-                f"<div style='font-size:.85rem;font-weight:700;color:#1a1a1a;"
-                f"margin-top:.2rem;word-break:break-word'>{val}</div></div>",
-                unsafe_allow_html=True,
-            )
+            st.text_input(lbl, key=k)
 
-    st.markdown("<div style='margin:.75rem 0'></div>", unsafe_allow_html=True)
+    ac = st.columns(7)
+    with ac[0]: st.text_input("Address",   key="ed_address")
+    with ac[1]: st.text_input("City / ST", key="ed_city_name")
 
-    # Marketing copy segments
-    with st.expander("📝 Full Description", expanded=False):
-        st.markdown(result.get("full_description", ""), unsafe_allow_html=True)
-    with st.expander("🏘 Neighborhood", expanded=False):
-        st.markdown(result.get("neighborhood", ""), unsafe_allow_html=True)
-    with st.expander("📍 Location", expanded=False):
-        st.markdown(result.get("location", ""), unsafe_allow_html=True)
-    with st.expander("🏙 City", expanded=False):
-        st.markdown(result.get("city_tab", ""), unsafe_allow_html=True)
+    st.markdown("<div style='margin:.6rem 0'></div>", unsafe_allow_html=True)
+
+    # ── Editable content tabs ────────────────────────────────────────────────
+    t1, t2, t3, t4 = st.tabs(["📝 Description", "🏘 Neighborhood", "📍 Location", "🏙 City"])
+    with t1:
+        st.text_area("Description",  key="ed_description",  height=200, label_visibility="collapsed")
+    with t2:
+        st.text_area("Neighborhood", key="ed_neighborhood", height=200, label_visibility="collapsed")
+    with t3:
+        st.text_area("Location",     key="ed_location",     height=200, label_visibility="collapsed")
+    with t4:
+        st.text_area("City Profile", key="ed_city_tab",     height=200, label_visibility="collapsed")
 
     st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
 
-    # ── Flyer bullets ────────────────────────────────────────────────────────
+    # ── Flyer bullets & social post ──────────────────────────────────────────
     st.markdown(
         "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
         "text-transform:uppercase;letter-spacing:.06em;margin-bottom:.35rem'>"
-        "Flyer Bullets (6)</div>",
+        "Flyer Bullets</div>",
         unsafe_allow_html=True,
     )
-    bullets_txt = "\n".join(
-        f"• {b}" for b in result.get("flyer_bullets", [])
-    )
-    st.text_area("Flyer Bullets", value=bullets_txt, height=160, label_visibility="collapsed")
+    st.text_area("Flyer Bullets", key="ed_flyer_bullets", height=160, label_visibility="collapsed")
 
-    # ── Social post ─────────────────────────────────────────────────────────
     st.markdown(
         "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
         "text-transform:uppercase;letter-spacing:.06em;margin:.75rem 0 .35rem'>"
         "Social Media Post</div>",
         unsafe_allow_html=True,
     )
-    st.text_area(
-        "Social Post", value=result.get("social_post", ""),
-        height=200, label_visibility="collapsed",
-    )
+    st.text_area("Social Post", key="ed_social_post", height=180, label_visibility="collapsed")
 
     st.markdown("---")
 
-    # ── HTML template output ─────────────────────────────────────────────────
+    # ── HTML output section ──────────────────────────────────────────────────
     if mode == "For Sale":
         st.markdown(
             "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
@@ -1838,22 +1948,32 @@ def _render_compile_results(prefix: str, result: dict, studeo_url: str, mode: st
             "Gallery & banner images use 7-day presigned R2 URLs. "
             "Copy the HTML block below and paste into your website CMS."
         )
-        try:
-            html_out = _for_sale_html(prefix, result, studeo_url)
-            st.text_area(
-                "HTML", value=html_out, height=420, label_visibility="collapsed",
-            )
+        gen_prefix = prefix or st.session_state.get("ed_prefix", "")
+        gen_studeo = studeo_url or st.session_state.get("ed_studeo_url", "")
+
+        _, gbtn_col, _ = st.columns([1, 2, 1])
+        with gbtn_col:
+            if st.button("🔨  Generate Listing HTML", use_container_width=True, key="gen_html_btn"):
+                try:
+                    html_out = _for_sale_html(gen_prefix, _editor_to_result(), gen_studeo)
+                    st.session_state["ed_html_out"]    = html_out
+                    st.session_state["ed_html_prefix"] = gen_prefix
+                except Exception as exc:
+                    st.error(f"HTML generation failed: {exc}")
+
+        if "ed_html_out" in st.session_state:
+            html_out   = st.session_state["ed_html_out"]
+            out_prefix = st.session_state.get("ed_html_prefix", gen_prefix)
+            st.text_area("HTML", value=html_out, height=420, label_visibility="collapsed")
             dl_b64 = base64.b64encode(html_out.encode()).decode()
-            dl_href = (
+            st.markdown(
                 f"<a href='data:text/html;base64,{dl_b64}' "
-                f"download='{prefix}-listing.html' "
+                f"download='{out_prefix}-listing.html' "
                 f"style='display:inline-block;margin-top:.5rem;padding:.45rem 1.1rem;"
                 f"background:#990000;color:#fff;border-radius:6px;font-size:.82rem;"
-                f"font-weight:700;text-decoration:none'>⬇ Download HTML</a>"
+                f"font-weight:700;text-decoration:none'>⬇ Download HTML</a>",
+                unsafe_allow_html=True,
             )
-            st.markdown(dl_href, unsafe_allow_html=True)
-        except Exception as exc:
-            st.error(f"HTML generation failed: {exc}")
 
     else:  # Sold mode
         st.markdown(
@@ -1889,20 +2009,20 @@ def _render_compile_results(prefix: str, result: dict, studeo_url: str, mode: st
                     unsafe_allow_html=True,
                 )
                 try:
-                    html_out = _sold_html(prefix, result)
+                    html_out = _sold_html(prefix, _editor_to_result())
                     st.text_area(
                         "Sold HTML", value=html_out, height=380,
                         label_visibility="collapsed",
                     )
                     dl_b64 = base64.b64encode(html_out.encode()).decode()
-                    dl_href = (
+                    st.markdown(
                         f"<a href='data:text/html;base64,{dl_b64}' "
                         f"download='{prefix}-sold.html' "
                         f"style='display:inline-block;margin-top:.5rem;padding:.45rem 1.1rem;"
                         f"background:#990000;color:#fff;border-radius:6px;font-size:.82rem;"
-                        f"font-weight:700;text-decoration:none'>⬇ Download HTML</a>"
+                        f"font-weight:700;text-decoration:none'>⬇ Download HTML</a>",
+                        unsafe_allow_html=True,
                     )
-                    st.markdown(dl_href, unsafe_allow_html=True)
                 except Exception as exc:
                     st.error(f"Sold template generation failed: {exc}")
 
