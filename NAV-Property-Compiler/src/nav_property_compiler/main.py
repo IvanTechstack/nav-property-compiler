@@ -1651,7 +1651,6 @@ def page_compile() -> None:
         st.session_state["compile_result"] = result
         st.session_state["compile_prefix"] = prefix
         st.session_state["compile_studeo"] = studeo_url
-        st.session_state["compile_mode"] = mode
     except Exception as exc:
         st.error(f"AI compile failed: {exc}")
         return
