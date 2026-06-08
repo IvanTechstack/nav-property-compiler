@@ -594,17 +594,20 @@ def _render_upload_sequence(prefix: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
-    stats = data.get("stats", {})
-    address = stats.get("address", prefix)
-    city    = stats.get("city", "")
-    price   = stats.get("price", "")
-    beds    = stats.get("beds", "")
-    baths   = stats.get("baths", "")
-    sqft    = stats.get("sqft", "")
-    year    = stats.get("year", "")
-    mls_no  = stats.get("mls", "")
+    import urllib.parse as _up
 
-    # Gallery images from R2 (sorted, 7-day presigned)
+    stats    = data.get("stats", {})
+    address  = stats.get("address", prefix)
+    city     = stats.get("city", "")
+    price    = stats.get("price", "")
+    beds     = stats.get("beds", "")
+    baths    = stats.get("baths", "")
+    sqft     = stats.get("sqft", "")
+    lot_size = stats.get("lot_size", stats.get("lot", ""))
+    year     = stats.get("year", "")
+    mls_no   = stats.get("mls", "")
+
+    # ── R2 assets ─────────────────────────────────────────────────────────
     folder = f"properties/{prefix}/"
     try:
         objs = list_objects(prefix=folder)
@@ -617,57 +620,102 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
             s = set(img_keys)
             img_keys = [k for k in saved if k in s] + [k for k in img_keys if k not in set(saved)]
         gallery_urls = [presigned_url(k, expires_in=604800) for k in img_keys]
+        story_key = next((o["Key"] for o in objs if "story-cover" in o["Key"]), None)
+        story_cover_url = presigned_url(story_key, expires_in=604800) if story_key else ""
     except Exception:
         gallery_urls = []
+        story_cover_url = ""
 
-    # Featured banner
     try:
         banner_url = presigned_url(f"{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp", expires_in=604800)
     except Exception:
         banner_url = ""
 
-    # Gallery HTML (3-col grid)
+    # ── Gallery HTML ───────────────────────────────────────────────────────
     if gallery_urls:
         gallery_items = "\n".join(
             f'  <a href="{u}" target="_blank"><img src="{u}" alt="Photo {i+1}" loading="lazy"></a>'
             for i, u in enumerate(gallery_urls)
         )
-        gallery_section = (
-            "<section class='gallery'>\n"
-            f"{gallery_items}\n"
-            "</section>"
-        )
+        gallery_section = f"<section class='gallery'>\n{gallery_items}\n</section>"
     else:
         gallery_section = "<section class='gallery'><p style='padding:2rem;color:#aaa'>Gallery images will appear here after upload.</p></section>"
 
-    # 24 feature bullets
-    bullets = data.get("bullets_24", [])
+    # ── Property Highlights: 6 fixed + 18 dynamic ─────────────────────────
+    fixed_6 = [
+        f"MLS# {mls_no}" if mls_no else "MLS# —",
+        f"{beds} Bedrooms" if beds else "Bedrooms: —",
+        f"{baths} Bathrooms" if baths else "Bathrooms: —",
+        f"{sqft} sq ft Living Area" if sqft else "Living Area: —",
+        f"{lot_size} Lot Size" if lot_size else "Lot Size: —",
+        f"Built {year}" if year else "Year Built: —",
+    ]
+    dynamic_18 = data.get("bullets_24", [])[:18]
+    all_bullets = fixed_6 + dynamic_18
     bullets_html = "".join(
         f"<div class='feat'><span class='dot'>&#9679;</span>{b}</div>"
-        for b in bullets[:24]
+        for b in all_bullets
     )
 
-    # CSS radio tabs: Description / Neighborhood / Lifestyle / Agent
+    # ── CSS radio tabs ─────────────────────────────────────────────────────
     tabs_content = {
-        "Description":   data.get("full_description", ""),
-        "Neighborhood":  data.get("neighborhood", ""),
-        "Lifestyle":     data.get("lifestyle", ""),
-        "Agent":         data.get("agent_bio", ""),
+        "Description":  data.get("full_description", ""),
+        "Neighborhood": data.get("neighborhood", ""),
+        "Lifestyle":    data.get("lifestyle", ""),
+        "Agent":        data.get("agent_bio", ""),
     }
-    tab_inputs = ""
-    tab_labels = ""
-    tab_panels = ""
-    tab_css_show = ""
+    tab_inputs = tab_labels = tab_panels = tab_css_show = ""
     for i, (name, content) in enumerate(tabs_content.items(), 1):
         checked = "checked" if i == 1 else ""
-        tab_inputs += f'<input type="radio" name="tab" id="t{i}" {checked}>\n'
-        tab_labels += f'<label for="t{i}">{name}</label>\n'
-        tab_panels += f'<div class="panel" id="p{i}">{content}</div>\n'
-        tab_css_show += f"#t{i}:checked~.tab-labels label[for='t{i}']{{color:#990000;border-bottom:3px solid #990000;}}\n"
-        tab_css_show += f"#t{i}:checked~.tab-body #p{i}{{display:block;}}\n"
+        tab_inputs  += f'<input type="radio" name="tab" id="t{i}" {checked}>\n'
+        tab_labels  += f'<label for="t{i}">{name}</label>\n'
+        tab_panels  += f'<div class="panel" id="p{i}">{content}</div>\n'
+        tab_css_show += (
+            f"#t{i}:checked~.tab-labels label[for='t{i}']"
+            f"{{color:#990000;border-bottom:3px solid #990000;}}\n"
+            f"#t{i}:checked~.tab-body #p{i}{{display:block;}}\n"
+        )
 
-    map_query = city.replace(" ", "+").replace(",", "%2C")
-    map_src = f"https://maps.google.com/maps?q={map_query}&output=embed"
+    # ── Map URL — full address encoded ─────────────────────────────────────
+    map_src = f"https://maps.google.com/maps?q={_up.quote(address)}&output=embed"
+
+    # ── Studeo right column ────────────────────────────────────────────────
+    studeo_link = studeo_url or "#"
+    if story_cover_url:
+        studeo_right_html = (
+            f'<a href="{studeo_link}" target="_blank" rel="noopener">'
+            f'<img src="{story_cover_url}" alt="Story Cover" '
+            f'style="width:100%;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.12);'
+            f'display:block;cursor:pointer"></a>'
+        )
+    else:
+        studeo_right_html = (
+            f'<a href="{studeo_link}" target="_blank" rel="noopener" '
+            f'style="display:inline-block;padding:1rem 2rem;background:#f4f4f4;'
+            f'border-radius:10px;font-weight:700;color:#990000;font-size:.95rem">'
+            f'Click to Explore the Booklet &#8594;</a>'
+        )
+
+    # ── Floating stat card HTML ────────────────────────────────────────────
+    stat_card_html = f"""
+<div class="hero-stat-card">
+  <div class="hsc-price">{price}</div>
+  <div class="hsc-divider"></div>
+  <div class="hsc-row"><span class="hsc-label">Beds</span><span class="hsc-val">{beds}</span></div>
+  <div class="hsc-row"><span class="hsc-label">Baths</span><span class="hsc-val">{baths}</span></div>
+  <div class="hsc-row"><span class="hsc-label">Living Area</span><span class="hsc-val">{sqft} sq ft</span></div>
+  <div class="hsc-row"><span class="hsc-label">Year Built</span><span class="hsc-val">{year}</span></div>
+  <div class="hsc-mls">MLS# {mls_no}</div>
+</div>"""
+
+    hero_html = ""
+    if banner_url:
+        hero_html = (
+            f'<div class="hero">'
+            f'<img src="{banner_url}" alt="{address}">'
+            f'{stat_card_html}'
+            f'</div>'
+        )
 
     css = """
 *{box-sizing:border-box;margin:0;padding:0}
@@ -675,25 +723,30 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;color:#1a1a1a
 a{color:#990000;text-decoration:none}
 a:hover{text-decoration:underline}
 
-/* ── Hero ── */
-.hero{width:100%;max-height:540px;overflow:hidden;position:relative}
-.hero img{width:100%;height:540px;object-fit:cover}
-.hero-overlay{position:absolute;bottom:0;left:0;right:0;padding:2rem 2.5rem;
-  background:linear-gradient(transparent,rgba(0,0,0,.65))}
+/* ── Address Header Bar ── */
+.address-bar{background:#fff;border-bottom:3px solid #990000;padding:1.1rem 2.5rem;
+  display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap}
+.address-bar h1{font-size:1.45rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em}
+.address-bar .city-tag{font-size:.9rem;color:#708090;font-weight:500}
 
-/* ── Desktop stats bar ── */
-.stat-bar{background:#0d0d0d;color:#fff;padding:.85rem 2.5rem;
-  display:flex;align-items:center;gap:2.5rem;flex-wrap:wrap;
-  border-bottom:3px solid #990000}
-.stat-bar .s{display:flex;align-items:center;gap:.45rem;font-size:.9rem}
-.stat-bar .s svg{flex-shrink:0}
-.stat-bar .label{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:#888;display:block}
-.stat-bar .val{font-weight:700;font-size:1rem}
-.price-chip{margin-left:auto;background:#990000;color:#fff;padding:.5rem 1.25rem;
-  border-radius:24px;font-weight:700;font-size:1.1rem;white-space:nowrap}
-.mls-tag{margin-left:.5rem;font-size:.72rem;color:#666;align-self:flex-end;padding-bottom:.15rem}
+/* ── Hero — natural proportions ── */
+.hero{width:100%;position:relative;overflow:hidden}
+.hero img{width:100%;height:auto;display:block}
 
-/* ── Mobile header (hidden desktop) ── */
+/* ── Floating stat card ── */
+.hero-stat-card{position:absolute;top:2rem;right:2rem;
+  background:rgba(255,255,255,0.96);backdrop-filter:blur(10px);
+  border-radius:14px;padding:1.25rem 1.5rem;min-width:190px;
+  box-shadow:0 10px 40px rgba(0,0,0,0.28),0 2px 8px rgba(0,0,0,0.12)}
+.hsc-price{font-size:1.35rem;font-weight:900;color:#990000;margin-bottom:.65rem}
+.hsc-divider{height:1px;background:#eaeaea;margin-bottom:.65rem}
+.hsc-row{display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:.4rem;gap:1.5rem}
+.hsc-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#999}
+.hsc-val{font-size:.88rem;font-weight:700;color:#1a1a1a}
+.hsc-mls{margin-top:.65rem;font-size:.65rem;color:#aaa;text-transform:uppercase;letter-spacing:.06em}
+
+/* ── Mobile header ── */
 .mobile-header{display:none;padding:1.25rem 1rem;border-bottom:3px solid #990000}
 .mobile-header h1{font-size:1.3rem;font-weight:800;color:#0d0d0d;margin-bottom:.5rem}
 .mobile-stats{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem}
@@ -701,9 +754,9 @@ a:hover{text-decoration:underline}
 .mobile-price{font-size:1.4rem;font-weight:900;color:#990000}
 
 @media(max-width:768px){
-  .stat-bar{display:none}
+  .address-bar h1{font-size:1.1rem}
+  .hero-stat-card{display:none}
   .mobile-header{display:block}
-  .hero img{height:260px}
 }
 
 /* ── Gallery grid ── */
@@ -713,7 +766,7 @@ a:hover{text-decoration:underline}
 .gallery a:hover img{transform:scale(1.04)}
 @media(max-width:600px){.gallery{grid-template-columns:repeat(2,1fr)}}
 
-/* ── Feature bullets 24 ── */
+/* ── Feature bullets ── */
 .features{padding:2rem 2.5rem;background:#fafafa}
 .features h2{font-size:1.1rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;
   color:#990000;margin-bottom:1.2rem;border-bottom:2px solid #990000;padding-bottom:.4rem}
@@ -732,20 +785,18 @@ a:hover{text-decoration:underline}
 .panel{display:none;line-height:1.8;color:#333;font-size:.95rem}
 .panel p{margin-bottom:1rem}
 
-/* ── Studeo split ── */
-.studeo{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:2rem;
-  padding:2.5rem;background:#0d0d0d;color:#fff}
-.studeo h3{font-size:1.3rem;font-weight:800;color:#fff;margin-bottom:.6rem}
-.studeo p{color:#aaa;font-size:.9rem;line-height:1.7;margin-bottom:1.2rem}
-.studeo-btn{display:inline-block;background:#990000;color:#fff;padding:.7rem 1.8rem;
-  border-radius:6px;font-weight:700;font-size:.9rem;transition:background .2s}
-.studeo-btn:hover{background:#7a0000;text-decoration:none}
+/* ── Studeo — white canvas ── */
+.studeo{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:3rem;
+  padding:3rem 2.5rem;background:#fff;border-top:1px solid #eaeaea}
+.studeo-left h3{font-size:1.25rem;font-weight:900;color:#0d0d0d;
+  margin-bottom:.9rem;line-height:1.3}
+.studeo-left p{color:#444;font-size:.92rem;line-height:1.8;margin-bottom:1rem}
+.studeo-left .click-cta{font-size:.85rem;font-weight:700;color:#990000;margin-top:.5rem}
 .studeo-right{text-align:center}
-.studeo-icon{font-size:4rem;margin-bottom:.75rem;display:block}
-@media(max-width:700px){.studeo{grid-template-columns:1fr}.studeo-right{display:none}}
+@media(max-width:700px){.studeo{grid-template-columns:1fr}.studeo-right{margin-top:1.5rem}}
 
 /* ── Map ── */
-.map-wrap{height:400px;overflow:hidden}
+.map-wrap{height:420px;overflow:hidden;border-top:1px solid #eaeaea}
 .map-wrap iframe{width:100%;height:100%;border:0}
 
 /* ── Footer ── */
@@ -766,34 +817,17 @@ a:hover{text-decoration:underline}
 </head>
 <body>
 
-<!-- Hero Banner -->
-{'<div class="hero"><img src="' + banner_url + '" alt="' + address + '"><div class="hero-overlay"></div></div>' if banner_url else ''}
-
-<!-- Desktop Stats Bar -->
-<div class="stat-bar">
-  <div class="s">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#990000" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-    <div><span class="label">Beds</span><span class="val">{beds}</span></div>
-  </div>
-  <div class="s">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#990000" stroke-width="2"><path d="M4 12h16M4 12V6a2 2 0 012-2h12a2 2 0 012 2v6M4 12v6a2 2 0 002 2h12a2 2 0 002-2v-6"/></svg>
-    <div><span class="label">Baths</span><span class="val">{baths}</span></div>
-  </div>
-  <div class="s">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#990000" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-    <div><span class="label">Living Area</span><span class="val">{sqft} sq ft</span></div>
-  </div>
-  <div class="s">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#990000" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-    <div><span class="label">Year Built</span><span class="val">{year}</span></div>
-  </div>
-  <span class="price-chip">{price}</span>
-  <span class="mls-tag">MLS# {mls_no}</span>
+<!-- Address Header Bar -->
+<div class="address-bar">
+  <h1>{address}</h1>
+  {'<span class="city-tag">' + city + '</span>' if city else ''}
 </div>
 
-<!-- Mobile Header -->
+<!-- Hero Banner — natural proportions, floating stat card -->
+{hero_html}
+
+<!-- Mobile Header (hidden on desktop) -->
 <div class="mobile-header">
-  <h1>{address}</h1>
   <div class="mobile-stats">
     <span>&#127970; {beds} Beds</span>
     <span>&#128704; {baths} Baths</span>
@@ -806,7 +840,7 @@ a:hover{text-decoration:underline}
 <!-- Gallery Matrix -->
 {gallery_section}
 
-<!-- Feature Bullets -->
+<!-- Property Highlights -->
 <section class="features">
   <h2>Property Highlights</h2>
   <div class="feat-grid">
@@ -825,28 +859,27 @@ a:hover{text-decoration:underline}
 </div>
 </div>
 
-<!-- Studeo.ai Booklet -->
+<!-- Story / Studeo Module — white canvas -->
 <div class="studeo">
   <div class="studeo-left">
-    <h3>Explore the Interactive Booklet</h3>
-    <p>Step inside {address} with our immersive Studeo.ai digital presentation — curated photography, floor plans, and neighbourhood insights in one seamless experience.</p>
-    <a class="studeo-btn" href="{studeo_url or '#'}" target="_blank">View Booklet &#8594;</a>
+    <h3>Every Home Has a Story&#8202;—&#8202;Experience This One</h3>
+    <p>At Navigate Real Estate, we believe every home deserves to have its story told. To the right, you&#8217;ll find an interactive digital booklet that brings this property to life. Take the tour and explore every detail&#8202;&#8212;&#8202;from standout features and modern comforts to the neighborhood amenities that make this area such a great place to call home. Click now to watch the story and see if this could be your next chapter.</p>
+    <p class="click-cta">Click the image to the right and read this home&#8217;s story.</p>
   </div>
   <div class="studeo-right">
-    <span class="studeo-icon">&#128218;</span>
-    <div style="font-size:.8rem;color:#aaa">Scan or click to explore</div>
+    {studeo_right_html}
   </div>
 </div>
 
-<!-- Google Map -->
+<!-- Google Map — pinned to property address -->
 <div class="map-wrap">
-  <iframe src="{map_src}" loading="lazy" allowfullscreen></iframe>
+  <iframe src="{map_src}" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
 </div>
 
 <!-- Footer -->
 <footer class="footer">
   <strong>NAV Brokerage</strong> &nbsp;|&nbsp; {address} &nbsp;|&nbsp; MLS# {mls_no}<br>
-  {data.get('agent_bio', '')}
+  {data.get("agent_bio", "")}
 </footer>
 
 </body>
