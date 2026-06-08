@@ -8,12 +8,14 @@ A Streamlit-based property media management tool for NAV brokerage — optimizes
 - Dev URL: `/__mockup` path on the Replit dev domain
 - Streamlit binary: `/home/runner/workspace/.pythonlibs/bin/streamlit` (full path required — Nix has a conflicting old version)
 - R2 secrets required: `R2_ENDPOINT_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+- OpenAI: `AI_INTEGRATIONS_OPENAI_BASE_URL` + `AI_INTEGRATIONS_OPENAI_API_KEY` (auto-set via Replit integration) or `OPENAI_API_KEY` for direct API
 
 ## Stack
 
 - Python 3.11 + Streamlit 1.57.0
 - Pillow 12.2.0 — image processing (resize, WebP encode, EXIF transpose)
 - boto3 1.43.11 — Cloudflare R2 (S3-compatible) storage
+- openai 2.41.0 — AI content generation via Replit AI Integrations proxy
 - No numpy — all image ops use pure PIL; thumbnails served as base64 HTML to avoid numpy C-extension failures in Nix
 
 ## Where things live
