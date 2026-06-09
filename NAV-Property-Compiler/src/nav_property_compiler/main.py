@@ -475,7 +475,12 @@ section[data-testid="stSidebar"]{{
     background-color:#ffffff!important;border-right:3px solid {CRIMSON};
 }}
 section[data-testid="stSidebar"] > div{{background-color:#ffffff!important}}
-section[data-testid="stSidebar"] [data-testid="stImage"]{{display:flex;justify-content:center}}
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"]{{
+    padding-top:0rem!important;padding-left:0rem!important;padding-right:0rem!important;
+}}
+section[data-testid="stSidebar"] .stImage img{{
+    width:100%!important;height:auto!important;border-radius:0px!important;
+}}
 .sidebar-divider{{border:none;border-top:1px solid #d9d9d9;margin:.75rem 0 1rem}}
 
 /* ─────────────────────────────────────────────────────────
@@ -2308,7 +2313,7 @@ def main() -> None:
     st.set_page_config(page_title=APP_NAME, page_icon="🏠", layout="wide")
     _inject_css()
 
-    st.sidebar.image("ivan.png", width=130)
+    st.sidebar.image("ivan.png", use_container_width=True)
 
     st.sidebar.markdown(
         f"<h2 style='color:{CRIMSON};margin-top:.15rem;text-align:center;"
