@@ -1,4 +1,4 @@
-"""Ivan's Image Optimizer — Property media management via Cloudflare R2."""
+"""Navigate Featured Property Builder — Property media management via Cloudflare R2."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from PIL import Image, ImageOps
 # Constants
 # ---------------------------------------------------------------------------
 
-APP_NAME = "Ivan's Image Optimizer"
+APP_NAME = "Navigate Featured Property Builder"
 BUCKET_NAME = "nav-property-media"
 
 MASTER_FEATURED_PREFIX = "000_MASTER_FEATURED_IMAGES"
@@ -1135,7 +1135,9 @@ a:hover{text-decoration:underline}
 
 <!-- Address Header Bar -->
 <div class="address-bar">
-  {_ivan_logo_tag("38px")}
+  <span style="background:#990000;color:#fff;font-size:.72rem;font-weight:900;
+    letter-spacing:.12em;text-transform:uppercase;padding:.35rem .85rem;
+    border-radius:3px;flex-shrink:0;line-height:1">FOR SALE</span>
   <h1>{address}</h1>
   {'<span class="city-tag">' + city + '</span>' if city else ''}
 </div>
@@ -2305,7 +2307,7 @@ def main() -> None:
     st.set_page_config(page_title=APP_NAME, page_icon="🏠", layout="wide")
     _inject_css()
 
-    st.sidebar.image("ivan.png", width=180)
+    st.sidebar.image("ivan.png", width=45)
 
     st.sidebar.markdown(
         f"<h2 style='color:{CRIMSON};margin-top:.25rem;text-align:center;"
