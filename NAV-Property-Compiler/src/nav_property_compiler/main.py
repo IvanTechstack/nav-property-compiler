@@ -1,4 +1,4 @@
-"""Navigate Featured Property Builder — Property media management via Cloudflare R2."""
+"""Featured Property Builder — Property media management via Cloudflare R2."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from PIL import Image, ImageOps
 # Constants
 # ---------------------------------------------------------------------------
 
-APP_NAME = "Navigate Featured Property Builder"
+APP_NAME = "Featured Property Builder"
 BUCKET_NAME = "nav-property-media"
 
 MASTER_FEATURED_PREFIX = "000_MASTER_FEATURED_IMAGES"
@@ -2307,10 +2307,11 @@ def main() -> None:
     st.set_page_config(page_title=APP_NAME, page_icon="🏠", layout="wide")
     _inject_css()
 
-    st.sidebar.image("ivan.png", width=45)
+    _sb_l, _sb_c, _sb_r = st.sidebar.columns([1, 2, 1])
+    _sb_c.image("ivan.png", width=70)
 
     st.sidebar.markdown(
-        f"<h2 style='color:{CRIMSON};margin-top:.25rem;text-align:center;"
+        f"<h2 style='color:{CRIMSON};margin-top:.15rem;text-align:center;"
         f"font-size:1.15rem'>{APP_NAME}</h2>",
         unsafe_allow_html=True,
     )
