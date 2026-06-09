@@ -44,6 +44,21 @@ BLACK = "#0d0d0d"
 
 _IVAN_IMG_PATH = "/home/runner/workspace/Ivan .png"
 
+
+def _ivan_logo_tag(max_height: str = "38px") -> str:
+    """Return an inline base64 <img> tag for Ivan mascot, or '' if file missing."""
+    try:
+        import base64 as _b
+        with open(_IVAN_IMG_PATH, "rb") as f:
+            b64 = _b.b64encode(f.read()).decode()
+        return (
+            f"<img src='data:image/png;base64,{b64}' "
+            f"alt='Ivan' style='max-height:{max_height};width:auto;"
+            f"display:block;flex-shrink:0'>"
+        )
+    except Exception:
+        return ""
+
 R2_CORS_CONFIG = [
     {
         "AllowedOrigins": ["*"],
@@ -970,7 +985,7 @@ a:hover{text-decoration:underline}
 
 /* ── Address Header Bar ── */
 .address-bar{background:#fff;border-bottom:3px solid #990000;padding:1.1rem 2.5rem;
-  display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap}
+  display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap}
 .address-bar h1{font-size:1.45rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em}
 .address-bar .city-tag{font-size:.9rem;color:#708090;font-weight:500}
 
@@ -1084,6 +1099,7 @@ a:hover{text-decoration:underline}
 
 <!-- Address Header Bar -->
 <div class="address-bar">
+  {_ivan_logo_tag("38px")}
   <h1>{address}</h1>
   {'<span class="city-tag">' + city + '</span>' if city else ''}
 </div>
@@ -2100,6 +2116,24 @@ def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
     )
     st.text_area("Social Post", key="ed_social_post", height=180, label_visibility="collapsed")
 
+    _post_preview = st.session_state.get("ed_social_post", "")
+    if _post_preview.strip():
+        import html as _html_mod
+        _esc = _html_mod.escape(_post_preview)
+        st.markdown(
+            "<div style='font-size:.72rem;font-weight:700;color:#bbb;"
+            "text-transform:uppercase;letter-spacing:.06em;"
+            "margin:.6rem 0 .25rem'>Preview</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div style='padding:.85rem 1rem;background:#f9f9f9;"
+            f"border:1px solid #eaeaea;border-radius:8px;"
+            f"font-size:.88rem;line-height:1.7;color:#333;"
+            f"white-space:pre-wrap;word-break:break-word'>{_esc}</div>",
+            unsafe_allow_html=True,
+        )
+
     st.markdown("---")
 
     # ── HTML output section ──────────────────────────────────────────────────
@@ -2238,7 +2272,10 @@ def main() -> None:
         with open(_IVAN_IMG_PATH, "rb") as _f:
             _b64 = base64.b64encode(_f.read()).decode()
         st.sidebar.markdown(
-            f"<img src='data:image/png;base64,{_b64}' style='width:100%;border-radius:8px;'>",
+            f"<div style='text-align:center;padding:.5rem 0 .25rem'>"
+            f"<img src='data:image/png;base64,{_b64}' "
+            f"style='max-height:45px;width:auto;display:inline-block;border-radius:6px'>"
+            f"</div>",
             unsafe_allow_html=True,
         )
     else:
