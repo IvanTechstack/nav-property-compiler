@@ -42,7 +42,7 @@ CRIMSON = "#990000"
 SLATE = "#708090"
 BLACK = "#0d0d0d"
 
-_IVAN_IMG_PATH = "/home/runner/workspace/Ivan .png"
+_IVAN_IMG_PATH = "/home/runner/workspace/ivan.png"
 
 
 def _ivan_logo_tag(max_height: str = "38px") -> str:
