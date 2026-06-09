@@ -1,0 +1,20 @@
+Let's upgrade Ivan's core writing intelligence engine and data ingestion layers inside main.py to handle hyper-local journalism, eliminate repetition looping, and accept direct Zillow URLs.
+
+Please apply these structural enhancements:
+
+1. Dynamic Data Ingestion (Zillow URL Support):
+   - In the Property Upload/Setup UI layout, change the raw text dump input field to an st.text_input labeled '🔗 Paste Zillow Property URL or MLS Text Dump'.
+   - Update the system processing: if the input string contains 'zillow.com', configure our scraping/parsing layer to extract the listing information natively, or explicitly pass the URL parameter straight to our OpenAI client model instructing it to utilize its browse/search capabilities to accurately parse and ingest that property's specifications, public descriptions, and location metrics.
+
+2. Comprehensive AI Prompt Transformation (_AI_SYSTEM & _AI_PROMPT):
+   - Completely rewrite the system instructions to eliminate rigid paragraph length caps, preventing the model from hitting repetition loop collapses. Give the AI freedom to write deep, expansive, sales-driven copy.
+   - Mandate that Ivan must act as an elite local investigative journalist. It must run a localized geographic query on the specific address provided (e.g., '1133 Ironwood Circle, Fairfield, CA') using its internal knowledge base or search lookups.
+   - Description Tab: Must absorb the entire text source, enhancing and elevating the prose while guaranteeing 100% of physical assets (e.g., 3-car garage, whole-house fan, main-level bedroom, RV/Boat parking, cathedral ceilings) are fully preserved and explicitly celebrated.
+   - Neighborhood Tab: Must zero in on the exact neighborhood pocket. Identify specific nearby schools, parks, golf courses, and lifestyle perks native to that micro-market.
+   - Location Tab: Must detail regional commuting infrastructure. Reference specific highways (I-80, Highway 12), transit corridors, and explicit nearby employment/lifestyle hubs (e.g., Travis Air Force Base, Suisun Valley wine trails, Napa borders, local valleys).
+   - City Tab: Provide an elite profile of the host city, emphasizing major economic drivers, local cultural attractions, things to do, and why premium buyers seek out this municipality.
+
+3. HTML Layout Preservation:
+   - Ensure all expanded, deeply specific text fields still pass smoothly through our '_auto_format_content' parser so they continue to render with gorgeous slate gray <h3> titles, bold <strong> features, and crimson accents inside the compiled HTML dashboard output.
+
+Please implement this deep intelligence upgrade, ensure the app builds cleanly with no syntax errors, and push the morning master build straight to GitHub!
