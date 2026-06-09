@@ -603,43 +603,64 @@ div.action-bar {{
 # ---------------------------------------------------------------------------
 
 _AI_SYSTEM = (
-    "You are an expert real estate and travel journalist writing for a luxury brokerage. "
-    "Your copy is SEO-optimised, vivid, and editorial — never generic or salesy. "
-    "ALL prose content values must use clean, native inline HTML only: "
-    "<h3> for section subheadlines, <strong> for bold callouts, <p> for paragraph blocks. "
-    "Never output markdown, asterisks, hyphens as bullets, or plain untagged prose. "
-    "Return ONLY valid JSON — no markdown fences, no commentary."
+    "You are Ivan — an elite real estate copywriter and hyper-local investigative journalist "
+    "for Navigate Real Estate, a premium California brokerage. "
+    "Your mission: turn raw property data into world-class editorial content that moves buyers to action.\n\n"
+
+    "CORE MANDATE:\n"
+    "1. PRESERVE EVERY ASSET. Absorb every physical detail in the source material without exception. "
+    "Every garage bay, ceiling feature, bonus room, RV/boat parking space, whole-house fan, solar panel, "
+    "outdoor kitchen, patio, upgrade, and lot feature must be explicitly named and celebrated in the prose. "
+    "Omitting a listed asset is a critical failure.\n"
+    "2. WRITE EXPANSIVELY. Two or more rich, fully developed sections per content field. "
+    "There are no word counts, no paragraph length caps. Depth and specificity win buyers.\n"
+    "3. INVESTIGATE THE LOCATION. For every property, run a hyper-local geographic analysis. "
+    "Name real schools with actual ratings, real parks, real highway interchanges, real employers, "
+    "real cultural venues, real commute corridors. Generic filler ('vibrant community', 'convenient location') "
+    "is strictly forbidden — replace it with named, verifiable local facts.\n"
+    "4. HTML ONLY. All prose values must use native HTML: <h3> for section subheadlines, "
+    "<strong> for bold feature callouts, <p> for paragraph blocks. "
+    "Never output markdown, asterisks, dashes as bullets, or untagged prose.\n"
+    "5. Return ONLY valid JSON — no markdown fences, no preamble, no commentary."
 )
 
 _AI_PROMPT = """\
-Parse the MLS listing below and return a single JSON object with these exact keys:
+You are compiling a premium real estate listing package for the property below.
+Analyze every line of the source material, then return a single valid JSON object using the exact schema provided.
 
+=== SOURCE MATERIAL ===
+{mls_text}
+=== END SOURCE MATERIAL ==={zillow_note}
+
+Property ID / Name: {property_name}
+Studeo.ai Interactive Booklet URL: {studeo_url}
+
+=== OUTPUT SCHEMA ===
 {{
   "stats": {{
     "mls": "MLS number",
     "address": "full street address",
     "city": "City, ST",
-    "beds": "bedrooms",
+    "beds": "number of bedrooms",
     "baths": "bathrooms e.g. 3.5",
-    "sqft": "square footage with commas",
-    "lot_size": "lot size with units e.g. 0.25 acres",
+    "sqft": "interior sq ft with commas",
+    "lot_size": "lot size with units e.g. 0.38 acres",
     "year": "year built",
     "price": "$X,XXX,XXX"
   }},
-  "full_description": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Section 1 headline covers architectural character and curb appeal; Section 2 covers interiors — finishes, light, flow, standout features. Use <strong> to call out key features inline. SEO-optimised, no filler.",
-  "neighborhood": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Section 1 covers schools (name them with ratings if known), parks, trails. Section 2 covers walkable amenities — coffee shops, farmers markets, tennis courts, restaurants. Use <strong> for specific names. Hyper-local and factual.",
-  "location": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Section 1 covers commuter infrastructure — exact mileage to the nearest freeway on-ramp, downtown core, and transit lines. Section 2 covers geographic positioning — drive times to 2-3 neighboring cities and notable natural attractions or landmarks. Use <strong> for distances.",
-  "city_tab": "EXACTLY TWO sections, each opened with an <h3> subheadline followed by a <p> paragraph. Written in high-end travel magazine style. Section 1 captures unique local culture, arts scene, and culinary highlights. Section 2 explains why discerning buyers choose this city — quality of life, outdoor recreation, community character. Use <strong> for standout draws.",
-  "bullets_24": ["exactly 24 concise property feature bullets, each 3-8 words — plain text, no HTML"],
-  "flyer_bullets": ["exactly 6 compelling one-line bullets for a print flyer — plain text, no HTML"],
-  "social_post": "Instagram/Facebook caption with emojis and hashtags at end (plain text, use newlines)"
+
+  "full_description": "THE PROPERTY — write two or more deeply immersive HTML sections. Section 1: exterior architecture, curb appeal, driveway, garage (number of bays), lot, mature trees, outdoor living. Section 2+: interior room-by-room tour — entry, living areas, kitchen (name appliances and finishes), bedrooms (including any main-level bedroom), primary suite, bathrooms, bonus rooms, loft, storage. Explicitly name and celebrate EVERY asset in the source: whole-house fans, cathedral ceilings, RV/boat parking, solar, whole-home generators, smart systems, pool/spa, custom built-ins, workshop space. <strong> every standout feature. No asset may be omitted.",
+
+  "neighborhood": "THE MICRO-MARKET POCKET — write two or more sections with real, verifiable local intelligence. Section 1: name the actual elementary, middle, and high schools serving this precise address — include Niche or GreatSchools ratings if known, notable programs (IB, STEM, magnet). Section 2+: immediate lifestyle amenities — named parks, open space preserves, trails, community pools, golf courses, farmers markets, local coffee roasters, acclaimed restaurants, fitness studios, sports complexes. Write like a local insider who has lived here for a decade.",
+
+  "location": "COMMUTING & CONNECTIVITY — write two or more sections with real geography and real measurements. Section 1: name the specific freeway interchanges (I-80, Hwy 12, I-680, etc.), estimated drive times to the nearest major employment centers (name the employers or districts), BART/Amtrak/transit options with station names and schedules. For Bay Area/Sacramento region properties explicitly reference Travis AFB, downtown Sacramento, Oakland, San Francisco commute corridors where relevant. Section 2+: regional positioning — drive times to wine country (Napa/Sonoma/Suisun Valley), the coast, ski resorts, Sacramento, the Bay Area, and the airport. Make the buyer feel the strategic value of this address.",
+
+  "city_tab": "THE CITY STORY — two or more sections in high-end travel magazine style. Section 1: the city's culture, character, culinary scene, arts institutions, annual events, and what makes it distinct from neighboring municipalities. Section 2+: the economic and lifestyle case — major employers and economic drivers, median home value trajectory, school district ranking, top-rated neighborhoods, outdoor recreation, why premium buyers are actively choosing this city over alternatives. Cite real venues, real statistics, real events. Be bold and persuasive.",
+
+  "bullets_24": ["24 concise property feature bullets, 3-8 words each — plain text, no HTML — cover every major feature from the source, starting with the highest-impact items"],
+  "flyer_bullets": ["6 compelling one-line bullets for a premium print flyer — plain text, no HTML — lead with the most emotionally resonant selling points"],
+  "social_post": "Instagram/Facebook caption — conversational, magnetic, emoji-forward — describe the feeling of the home, call out 2-3 power features, close with a CTA and hashtag block — plain text with real newline characters for line breaks"
 }}
-
-Property: {property_name}
-Studeo.ai URL: {studeo_url}
-
-MLS TEXT:
-{mls_text}
 """
 
 
@@ -658,10 +679,24 @@ def _compile_listing_ai(property_name: str, mls_text: str, studeo_url: str) -> d
     base_url = (_get_secret("AI_INTEGRATIONS_OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
     endpoint = f"{base_url}/chat/completions"
 
+    mls_clean = mls_text.strip()
+    is_zillow_url = (
+        mls_clean.lower().startswith("http")
+        and "zillow.com" in mls_clean.lower()
+    )
+    zillow_note = (
+        "\n\n⚠ INPUT TYPE: Zillow URL detected. Extract the property address from the URL "
+        "path slug. Use your training knowledge of this listing and its precise location to "
+        "populate all fields. Supplement any gaps with authoritative geographic and market "
+        "knowledge for that exact address and neighborhood."
+        if is_zillow_url else ""
+    )
+
     msg = _AI_PROMPT.format(
         property_name=property_name or "(not provided)",
         studeo_url=studeo_url or "(not provided)",
-        mls_text=mls_text.strip(),
+        mls_text=mls_clean,
+        zillow_note=zillow_note,
     )
     payload = json.dumps({
         "model": "gpt-4o",
@@ -670,7 +705,7 @@ def _compile_listing_ai(property_name: str, mls_text: str, studeo_url: str) -> d
             {"role": "user", "content": msg},
         ],
         "response_format": {"type": "json_object"},
-        "max_tokens": 8192,
+        "max_tokens": 16384,
     }).encode()
 
     req = _ur.Request(
@@ -1954,11 +1989,13 @@ def page_compile() -> None:
     left_col, right_col = st.columns([3, 1])
     with left_col:
         mls_text = st.text_area(
-            "📋 Paste Zillow / MLS Raw Text Dump Here",
+            "🔗 Paste Zillow Property URL or MLS Text Dump",
             height=200,
             placeholder=(
-                "Paste the full listing copy from Zillow, MLS, or any text source here.\n\n"
-                "Include: address, price, beds, baths, sq ft, year built, description, features, agent info…"
+                "Option A — paste a full Zillow listing URL:\n"
+                "https://www.zillow.com/homes/1133-ironwood-circle-fairfield-ca_rb/\n\n"
+                "Option B — paste the raw MLS text dump:\n"
+                "Include address, price, beds, baths, sq ft, year built, description, features, upgrades…"
             ),
         )
         studeo_url = st.text_input(
