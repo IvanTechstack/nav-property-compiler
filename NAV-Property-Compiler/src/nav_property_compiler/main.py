@@ -49,7 +49,8 @@ def _ivan_logo_tag(max_height: str = "38px") -> str:
     """Return an inline base64 <img> tag for Ivan mascot, or '' if file missing."""
     try:
         import base64 as _b
-        with open(_IVAN_IMG_PATH, "rb") as f:
+        _p = "ivan.png" if os.path.isfile("ivan.png") else _IVAN_IMG_PATH
+        with open(_p, "rb") as f:
             b64 = _b.b64encode(f.read()).decode()
         return (
             f"<img src='data:image/png;base64,{b64}' "
@@ -2267,22 +2268,7 @@ def main() -> None:
     st.set_page_config(page_title=APP_NAME, page_icon="🏠", layout="wide")
     _inject_css()
 
-    if os.path.isfile(_IVAN_IMG_PATH):
-        import base64
-        with open(_IVAN_IMG_PATH, "rb") as _f:
-            _b64 = base64.b64encode(_f.read()).decode()
-        st.sidebar.markdown(
-            f"<div style='text-align:center;padding:.5rem 0 .25rem'>"
-            f"<img src='data:image/png;base64,{_b64}' "
-            f"style='max-height:45px;width:auto;display:inline-block;border-radius:6px'>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.sidebar.markdown(
-            "<div style='text-align:center;font-size:3rem'>🧭</div>",
-            unsafe_allow_html=True,
-        )
+    st.sidebar.image("ivan.png", width=180)
 
     st.sidebar.markdown(
         f"<h2 style='color:{CRIMSON};margin-top:.25rem;text-align:center;"
