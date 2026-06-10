@@ -1,0 +1,15 @@
+Please modify our main application file at `NAV-Property-Compiler/src/nav_property_compiler/main.py` to implement the following structural optimizations and UI enhancements for Task 1:
+
+1. ALPHABETICAL DROPDOWN SEARCH FILTER:
+In `page_compile()`, look at where we generate the `st.selectbox` for "📂 Load Existing Listing". Right above that selectbox, add a search text input block (`st.text_input`). Filter the list of compiled property IDs (`prop_ids`) dynamically based on partial keyword text matching (ignoring capitalization and treating spaces/dashes gracefully) so the dropdown menu options instantly filter to match the search query.
+
+2. BROWSE BUCKET REAL-TIME SEARCH BAR:
+In `page_browse()`, right before calling `_render_folder_grid()`, insert a clean search text input bar (`st.text_input("🔍 Search Properties Directory")`). Live-filter the `prop_folders` list based on partial string matches of the street names/numbers, and pass that filtered list to `_render_folder_grid()` so the Mac Finder folder card grid filters down instantly on-screen.
+
+3. INDIVIDUAL FILE DOWNLOAD FIX:
+Inside `_render_folder_contents()`, inspect the loop displaying individual image grid cards. Currently, our `st.download_button` uses a lazy lambda pointer (`data=lambda _k=key: download_object(_k)`), which is causing broken data streams or browser download failures. Fix this by fetching the raw bytes actively via `download_object(key)` directly inside the loop and feeding those explicit file bytes into the `data` parameter of the button so individual photo downloads work natively.
+
+4. STANDALONE "DELETE PROPERTY PROJECT" PURGE SWITCH:
+Inside an opened folder view in `_render_folder_contents()`, find our top action header columns matrix (`back_c, title_c, del_c, wipe_c`). Right now, `wipe_c` holds a button to clear the folder contents but leaves the directory structure alive. Add a standalone button right next to it or as a definitive option called "❌ Delete Entire Project". When clicked, trigger a safety `st.warning` confirmation block asking: "Are you sure you want to permanently delete this listing and its data tracking JSON file from R2?". If confirmed, run a unified execution loop using `delete_object(obj["Key"])` targeting every single file path matching that property ID prefix—effectively purging both the images directory AND the `properties/{prefix}/data.json` configuration file completely to reclaim our storage space.
+
+Ensure all modifications preserve our existing UI CSS grid styles (`_inject_css`), Boto3 R2 cloud client definitions, and session state parameters perfectly. Run the app to confirm zero deployment syntax warnings.

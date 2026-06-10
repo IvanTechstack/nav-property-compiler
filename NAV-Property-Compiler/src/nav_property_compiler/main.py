@@ -1605,7 +1605,7 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
     n_img_sel = len(selected_imgs)
 
     # ── TOP HEADER ROW ─────────────────────────────────────────────────────
-    back_c, title_c, del_c, wipe_c = st.columns([1, 5, 2, 2])
+    back_c, title_c, del_c, wipe_c, purge_c = st.columns([1, 4, 2, 2, 2])
 
     with back_c:
         if st.button("⬅ Back", key="back_btn", use_container_width=True):
@@ -1640,6 +1640,13 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
         if not is_master and image_keys:
             if st.button("🗑️ Clear Folder", key="clear_folder_btn", use_container_width=True):
                 st.session_state["confirm_wipe"] = folder
+                st.session_state.pop("confirm_purge", None)
+
+    with purge_c:
+        if not is_master:
+            if st.button("❌ Delete Entire Project", key="purge_project_btn", use_container_width=True):
+                st.session_state["confirm_purge"] = folder
+                st.session_state.pop("confirm_wipe", None)
 
     st.markdown("<div style='margin:.3rem 0'></div>", unsafe_allow_html=True)
 
@@ -1662,6 +1669,26 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
         with nw:
             if st.button("Cancel", key="wipe_no"):
                 st.session_state.pop("confirm_wipe", None)
+                st.rerun()
+
+    # ── Delete-entire-project confirmation ──────────────────────────────────
+    if st.session_state.get("confirm_purge") == folder:
+        st.warning(
+            f"⚠ **Permanently delete the entire `{folder_label}` project?** "
+            f"This will remove all {len(objects)} file(s) from R2. There is no recovery path."
+        )
+        yp, np_ = st.columns(2)
+        with yp:
+            if st.button("✅ Yes, delete project", key="purge_yes", type="primary"):
+                for o in objects:
+                    delete_object(o["Key"])
+                st.session_state.pop("confirm_purge", None)
+                st.session_state.pop("browse_open_folder", None)
+                st.session_state.pop(f"thumbs_{folder}", None)
+                st.rerun()
+        with np_:
+            if st.button("Cancel", key="purge_no"):
+                st.session_state.pop("confirm_purge", None)
                 st.rerun()
 
     if not image_keys:
@@ -1762,12 +1789,12 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # ── Download button (lazy — fetches bytes from R2 on click) ───
+            # ── Download button — bytes fetched eagerly to avoid lambda stream failures ───
             _dl_name = key.split("/")[-1]
             _dl_mime = "image/gif" if _dl_name.endswith(".gif") else "image/webp"
             st.download_button(
                 label="📥 Download",
-                data=lambda _k=key: download_object(_k),
+                data=download_object(key),
                 file_name=_dl_name,
                 mime=_dl_mime,
                 key=f"dl_{safe_k}",
@@ -1819,7 +1846,13 @@ def page_browse() -> None:
     if open_folder:
         _render_folder_contents(open_folder, all_objects)
     else:
-        _render_folder_grid(prop_folders, prop_objects, master_objects)
+        _browse_q = st.text_input(
+            "🔍 Search Properties Directory",
+            placeholder="Filter by street name or number…",
+            key="browse_search_q",
+        ).strip().lower().replace(" ", "-").replace("_", "-")
+        _filtered_folders = [f for f in prop_folders if _browse_q in f.lower().replace("_", "-")] if _browse_q else prop_folders
+        _render_folder_grid(_filtered_folders, prop_objects, master_objects)
 
 
 def page_upload() -> None:
@@ -2032,7 +2065,14 @@ def page_compile() -> None:
 
     # ── Load Existing Listing ────────────────────────────────────────────────
     prop_ids = _list_compiled_properties()
-    load_opts = ["— new listing —"] + prop_ids
+    _compile_q = st.text_input(
+        "🔍 Filter listings",
+        placeholder="Type street name or number to narrow the dropdown…",
+        key="compile_search_q",
+        label_visibility="collapsed",
+    ).strip().lower().replace(" ", "-").replace("_", "-")
+    _filtered_ids = [p for p in prop_ids if _compile_q in p.lower().replace("_", "-")] if _compile_q else prop_ids
+    load_opts = ["— new listing —"] + _filtered_ids
     sel = st.selectbox("📂 Load Existing Listing", load_opts, key="load_prop_sel")
     if sel != "— new listing —":
         if st.session_state.get("_loaded_prop_id") != sel:
