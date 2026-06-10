@@ -1,0 +1,30 @@
+Let's upgrade our core compiler logic inside main.py to handle dual-header mobile responsiveness, smart photo/video visibility toggles, and metadata export hooks for our WordPress Multi-Site distribution engine.
+
+Please implement the following updates to our HTML generation blocks:
+
+1. Dual-Header Mobile Responsiveness CSS Breakpoints:
+   - Inside our HTML compiler template, inject clear CSS media query overrides into the page style block:
+     @media (max-width: 767px) {
+       .desktop-header-view { display: none !important; }
+       .mobile-header-view { display: block !important; width: 100%; text-align: center; padding: 1.5rem 1rem; }
+     }
+     @media (min-width: 768px) {
+       .desktop-header-view { display: flex !important; }
+       .mobile-header-view { display: none !important; }
+     }
+
+2. Smart Media Mobile Visibility Toggles:
+   - Modify the layout generation to output BOTH the desktop-header-view element and the mobile-header-view element simultaneously.
+   - The Mobile Header layout must explicitly structure: Center-aligned City Name (Large bold crimson H2), followed by the full Street Address, followed by a clean, horizontal inline metrics grid (Beds, Baths, SqFt, Built Year wrapped in light background badges), followed by the Property Price.
+   - Media Toggle Logic: 
+     - IF 'Photo Lookbook' is active: The mobile header should ONLY display the text headers directly above our existing photo slider widget. Do NOT stack a primary photo banner on top of the gallery slider.
+     - IF 'Video Theater Block' is active: Compile a mobile-responsive video iframe container that sits proudly at the absolute top of the mobile-header-view container, stacked directly above the text headers and the photo gallery below it, keeping our cinematic tour front and center.
+
+3. WordPress Multi-Site Metadata Ingestion Hooks:
+   - When the AI payload compiles, ensure our code cleanly outputs the raw data metrics into separate, dedicated structural strings alongside the master layout payload. We need these clean values explicitly available so our WordPress sync file can read them natively:
+     - 'property_display_price' (e.g., $1,349,000)
+     - 'property_display_address' (e.g., 204 Paseo Arboles)
+     - 'property_display_city' (e.g., Fairfield)
+     - 'property_display_slug' (URL-friendly string)
+
+Please execute these layout and structural compilation additions, run a clean app reboot check, and push the morning final build straight to GitHub!

@@ -233,12 +233,13 @@ def _list_compiled_properties() -> list[str]:
 
 def _build_compile_payload(prefix: str, result: dict, studeo_url: str = "") -> dict:
     import datetime as _dt
+    stats = result.get("stats", {})
     return {
         "property_id": prefix,
         "studeo_url": studeo_url,
         "media_type": result.get("media_type", "🖼️ Image"),
         "video_url":  result.get("video_url", ""),
-        "stats": result.get("stats", {}),
+        "stats": stats,
         "full_description": result.get("full_description", ""),
         "neighborhood": result.get("neighborhood", ""),
         "location": result.get("location", ""),
@@ -247,6 +248,10 @@ def _build_compile_payload(prefix: str, result: dict, studeo_url: str = "") -> d
         "flyer_bullets": result.get("flyer_bullets", []),
         "social_post": result.get("social_post", ""),
         "saved_at": _dt.datetime.utcnow().isoformat() + "Z",
+        "property_display_price":   stats.get("price", ""),
+        "property_display_address": stats.get("address", ""),
+        "property_display_city":    stats.get("city", ""),
+        "property_display_slug":    prefix,
     }
 
 
@@ -1019,6 +1024,26 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
                 f'</div>'
             )
 
+    # ── Mobile video block — shown at top of mobile-header-view ───────────
+    _mobile_video_html = ""
+    if vimeo_id and media_type == "🎥 Vimeo Video":
+        _mobile_video_html = (
+            f'<div class="mobile-video-wrap">'
+            f'<iframe src="https://player.vimeo.com/video/{vimeo_id}'
+            f'?title=0&byline=0&portrait=0"'
+            f' allow="fullscreen; picture-in-picture" allowfullscreen></iframe>'
+            f'</div>'
+        )
+    elif youtube_id and media_type == "📺 YouTube Video":
+        _mobile_video_html = (
+            f'<div class="mobile-video-wrap">'
+            f'<iframe src="https://www.youtube.com/embed/{youtube_id}'
+            f'?controls=1&rel=0&modestbranding=1&playsinline=1"'
+            f' allow="fullscreen; accelerometer; clipboard-write; encrypted-media;'
+            f' gyroscope; picture-in-picture" allowfullscreen></iframe>'
+            f'</div>'
+        )
+
     css = """
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;color:#1a1a1a;font-size:16px}
@@ -1048,17 +1073,29 @@ a:hover{text-decoration:underline}
 .hsc-val{font-size:.88rem;font-weight:700;color:#1a1a1a}
 .hsc-mls{margin-top:.65rem;font-size:.65rem;color:#aaa;text-transform:uppercase;letter-spacing:.06em}
 
-/* ── Mobile header ── */
-.mobile-header{display:none;padding:1.25rem 1rem;border-bottom:3px solid #990000}
-.mobile-header h1{font-size:1.3rem;font-weight:800;color:#0d0d0d;margin-bottom:.5rem}
-.mobile-stats{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem}
+/* ── Dual-header responsiveness ── */
+.desktop-header-view{display:flex}
+.mobile-header-view{display:none;text-align:center;padding:1.5rem 1rem;
+  border-bottom:3px solid #990000;background:#fff}
+.mh-city{font-size:1.5rem;font-weight:900;color:#990000;margin-bottom:.35rem}
+.mh-address{font-size:.95rem;color:#0d0d0d;font-weight:600;margin-bottom:.75rem}
+.mobile-stats{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-bottom:.75rem}
 .mobile-stats span{background:#f4f4f4;border-radius:20px;padding:.25rem .75rem;font-size:.8rem;font-weight:600}
-.mobile-price{font-size:1.4rem;font-weight:900;color:#990000}
+.mobile-price{font-size:1.5rem;font-weight:900;color:#990000}
+.mobile-video-wrap{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;
+  background:#0d0d0d;margin-bottom:1.25rem;border-radius:4px}
+.mobile-video-wrap iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 
-@media(max-width:768px){
-  .address-bar h1{font-size:1.1rem}
+@media(max-width:767px){
+  .desktop-header-view{display:none!important}
+  .mobile-header-view{display:block!important;width:100%}
   .hero-stat-card{display:none}
-  .mobile-header{display:block}
+  .address-bar h1{font-size:1.1rem}
+  .desktop-only{display:none!important}
+}
+@media(min-width:768px){
+  .desktop-header-view{display:flex!important}
+  .mobile-header-view{display:none!important}
 }
 
 /* ── Thumbnail strip slider ── */
@@ -1139,8 +1176,8 @@ a:hover{text-decoration:underline}
 </head>
 <body>
 
-<!-- Address Header Bar -->
-<div class="address-bar">
+<!-- Desktop Address Header Bar -->
+<div class="address-bar desktop-header-view">
   <span style="background:#990000;color:#fff;font-size:.72rem;font-weight:900;
     letter-spacing:.12em;text-transform:uppercase;padding:.35rem .85rem;
     border-radius:3px;flex-shrink:0;line-height:1">FOR SALE</span>
@@ -1151,8 +1188,11 @@ a:hover{text-decoration:underline}
 <!-- Hero Banner — natural proportions, floating stat card -->
 {hero_html}
 
-<!-- Mobile Header (hidden on desktop) -->
-<div class="mobile-header">
+<!-- Mobile Header (hidden on desktop, shown ≤767px) -->
+<div class="mobile-header-view">
+  {_mobile_video_html}
+  {'<h2 class="mh-city">' + city + '</h2>' if city else ''}
+  <p class="mh-address">{address}</p>
   <div class="mobile-stats">
     <span>&#127970; {beds} Beds</span>
     <span>&#128704; {baths} Baths</span>
@@ -1162,15 +1202,15 @@ a:hover{text-decoration:underline}
   <div class="mobile-price">{price}</div>
 </div>
 
-<!-- Media Block: Video Player or Gallery Matrix -->
+<!-- Media Block: Video Player (desktop) or Gallery Matrix -->
 {(
-    f'<div class="video-wrap">'
+    f'<div class="video-wrap desktop-only">'
     f'<iframe src="https://player.vimeo.com/video/{vimeo_id}'
     f'?title=0&byline=0&portrait=0"'
     f' allow="fullscreen; picture-in-picture" allowfullscreen></iframe>'
     f'</div>'
 ) if (media_type == "🎥 Vimeo Video" and vimeo_id) else (
-    f'<div class="video-wrap">'
+    f'<div class="video-wrap desktop-only">'
     f'<iframe src="https://www.youtube.com/embed/{youtube_id}'
     f'?controls=1&rel=0&modestbranding=1&playsinline=1"'
     f' allow="fullscreen; accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"'
