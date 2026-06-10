@@ -1,0 +1,13 @@
+Let's fix the interface friction in our `main.py` application file. Replit's previous pass missed critical visual widgets and sorting rules. Implement these three corrections in a clean, single batch:
+
+1. RENDER VISUAL DOWNLOAD BUTTONS (INDIVIDUAL + FULL ZIP):
+- Inside `_render_folder_contents()`, underneath the Position number input inside the image grid loop, our previous pass failed to visually render the `st.download_button()` widget. Add a clear, full-width `st.download_button` labeled "📥 Download Photo" that actively passes the fetched R2 file bytes string context natively.
+- Additionally, at the top header row column matrix (`back_c, title_c, del_c, wipe_c, purge_c`), add a master "📥 Download Full ZIP" button. When clicked, it should gather all image bytes from that property directory array, package them into an in-memory ZIP archive bundle via Python's `zipfile` library, and serve it as a single data package download.
+
+2. FLUID SEARCH AUTO-SELECTION IN THE COMPILING PANE:
+- Inside `page_compile()`, look at the text search box input filter logic. If a user types a keyword query into the search filter input field, and that query filters the `prop_ids` array down to EXACTLY ONE matching property row result (e.g., typing 'paseo' leaves only '204-paseo-arboles'), automatically set the selectbox's active selection state to that property ID and trigger an immediate `st.rerun()` to load its editor fields instantly, eliminating the need for a secondary click inside the dropdown list.
+
+3. ENFORCE CHRONOLOGICAL STREET NUMBER SORTING (LOW-TO-HIGH):
+- Modify our sorting helper logic inside `_list_compiled_properties()` and `page_browse()`. Instead of standard text string sorting, implement a natural alphanumeric sorting key function. The function must parse the numeric digits at the absolute beginning of our folder slug string names (e.g., extraction of '204', '817', '1133', '11528'). It must treat those digits as true integers and order the listing dropdowns and Browse Bucket directory finder-cards sequentially from LOWEST number value to HIGHEST number value.
+
+Ensure these modifications maintain our existing CSS wrappers (`_inject_css`), R2 client connections, and safety checks cleanly. Run a syntax verification pass and commit the update.

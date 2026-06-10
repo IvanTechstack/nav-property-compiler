@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import zipfile
 from dataclasses import dataclass
 
 import boto3
@@ -226,7 +227,10 @@ def _list_compiled_properties() -> list[str]:
                     if pid not in seen:
                         seen.add(pid)
                         ids.append(pid)
-        return sorted(ids)
+        def _nat_key(s: str) -> tuple:
+            m = re.match(r'^(\d+)', s)
+            return (int(m.group(1)), s) if m else (float('inf'), s)
+        return sorted(ids, key=_nat_key)
     except Exception:
         return []
 
@@ -1648,6 +1652,24 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
                 st.session_state["confirm_purge"] = folder
                 st.session_state.pop("confirm_wipe", None)
 
+    # ── Full ZIP download ────────────────────────────────────────────────────
+    if image_keys:
+        _zip_buf = io.BytesIO()
+        with zipfile.ZipFile(_zip_buf, "w", zipfile.ZIP_DEFLATED) as _zf:
+            for _k in image_keys:
+                try:
+                    _zf.writestr(_k.split("/")[-1], download_object(_k))
+                except Exception:
+                    pass
+        st.download_button(
+            label="📥 Download Full ZIP",
+            data=_zip_buf.getvalue(),
+            file_name=f"{folder_label}.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="dl_zip_all",
+        )
+
     st.markdown("<div style='margin:.3rem 0'></div>", unsafe_allow_html=True)
 
     # ── Clear-folder confirmation ───────────────────────────────────────────
@@ -1789,11 +1811,11 @@ def _render_folder_contents(folder: str, all_objects: list[dict]) -> None:
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # ── Download button — bytes fetched eagerly to avoid lambda stream failures ───
+            # ── Download button ───────────────────────────────────────────
             _dl_name = key.split("/")[-1]
             _dl_mime = "image/gif" if _dl_name.endswith(".gif") else "image/webp"
             st.download_button(
-                label="📥 Download",
+                label="📥 Download Photo",
                 data=download_object(key),
                 file_name=_dl_name,
                 mime=_dl_mime,
@@ -1840,7 +1862,10 @@ def page_browse() -> None:
             if f not in seen:
                 seen.add(f)
                 prop_folders.append(f)
-    prop_folders.sort()
+    def _nat_folder_key(s: str) -> tuple:
+        m = re.match(r'^properties/(\d+)', s)
+        return (int(m.group(1)), s) if m else (float('inf'), s)
+    prop_folders.sort(key=_nat_folder_key)
 
     open_folder = st.session_state.get("browse_open_folder")
     if open_folder:
@@ -2072,6 +2097,8 @@ def page_compile() -> None:
         label_visibility="collapsed",
     ).strip().lower().replace(" ", "-").replace("_", "-")
     _filtered_ids = [p for p in prop_ids if _compile_q in p.lower().replace("_", "-")] if _compile_q else prop_ids
+    if _compile_q and len(_filtered_ids) == 1:
+        st.session_state["load_prop_sel"] = _filtered_ids[0]
     load_opts = ["— new listing —"] + _filtered_ids
     sel = st.selectbox("📂 Load Existing Listing", load_opts, key="load_prop_sel")
     if sel != "— new listing —":
