@@ -2361,9 +2361,19 @@ def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
                         objs = list_objects(prefix=folder)
                         for o in objs:
                             delete_object(o["Key"])
+                        # Belt-and-suspenders: explicitly remove the tracking JSON so
+                        # this property no longer appears in the Load Existing Listing dropdown.
+                        try:
+                            delete_object(f"properties/{prefix}/data.json")
+                        except Exception:
+                            pass
+                        # Clear editor session state so the dropdown resets immediately.
                         st.session_state.pop("last_gallery_keys", None)
                         st.session_state.pop("last_gallery_thumbs", None)
-                        st.success(f"✓ `{folder}` wiped ({len(objs)} objects removed).")
+                        st.session_state.pop("_loaded_prop_id", None)
+                        st.session_state.pop("load_prop_sel", None)
+                        st.session_state.pop("compile_search_q", None)
+                        st.success(f"✓ `{folder}` wiped ({len(objs)} objects removed). Listing removed from tracking.")
                     except Exception as exc:
                         st.error(f"Wipe failed: {exc}")
                         return
