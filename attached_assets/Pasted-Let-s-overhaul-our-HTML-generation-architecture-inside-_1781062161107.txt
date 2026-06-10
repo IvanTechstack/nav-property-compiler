@@ -1,0 +1,24 @@
+Let's overhaul our HTML generation architecture inside main.py to output a strict "Modular Section Component Block" instead of a standalone webpage document. This will ensure perfect visual styling retention across our WordPress multi-site network distribution channels.
+
+Please rewrite the HTML/CSS generation code string matrix to achieve the following 4 structural updates:
+
+1. Strip Standalone Document Wrappers:
+   - Completely erase the following webpage syntax blocks from our output string generation arrays:
+     - <!DOCTYPE html>
+     - <html lang="en">
+     - <head> and </head>
+     - <body> and </body>
+     - </html>
+
+2. Enforce Scoped CSS Nesting Matrix:
+   - Wrap our entire layout content string inside a single master parent element container: <div class="nav-property-canvas">
+   - Review our compiled <style> block array. Prefix every single class definition so that it nests securely under our master canvas block (e.g., change '.address-bar' to '.nav-property-canvas .address-bar', '.feat-grid' to '.nav-property-canvas .feat-grid', etc.).
+   - This isolates our listing styles inside this component box so they pass cleanly through multi-site database filters without leaking into or breaking the agent's theme layouts.
+
+3. Prune General Body Styles:
+   - Completely delete the generic 'body { ... }' font and background color block from the stylesheet. Transfer any essential default layout rules (like font-family or background color) directly onto our '.nav-property-canvas' class descriptor.
+
+4. Layout Structural Alignment Checks:
+   - Double-check that all parent layout component boxes (such as '.features', '.tabs-wrap', and '.studeo') have clear structural flexbox layout selectors assigned (e.g., display: block; width: 100%; or display: flex; position: relative;) so they never fallback into default unstyled text block grids on the agent sites.
+
+Please complete these component compilation edits, perform an app reboot validation pass, and push this updated modular layout engine straight to GitHub!

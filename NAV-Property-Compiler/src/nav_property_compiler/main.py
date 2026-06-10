@@ -970,9 +970,9 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
         tab_labels  += f'<label for="t{i}">{name}</label>\n'
         tab_panels  += f'<div class="panel" id="p{i}">{content}</div>\n'
         tab_css_show += (
-            f"#t{i}:checked~.tab-labels label[for='t{i}']"
+            f".nav-property-canvas #t{i}:checked~.tab-labels label[for='t{i}']"
             f"{{color:#990000;border-bottom:3px solid #990000;}}\n"
-            f"#t{i}:checked~.tab-body #p{i}{{display:block;}}\n"
+            f".nav-property-canvas #t{i}:checked~.tab-body #p{i}{{display:block;}}\n"
         )
 
     # ── Map URL — full address encoded ─────────────────────────────────────
@@ -1045,136 +1045,150 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
         )
 
     css = """
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;color:#1a1a1a;font-size:16px}
-a{color:#990000;text-decoration:none}
-a:hover{text-decoration:underline}
+/* ── Canvas reset & base ── */
+.nav-property-canvas *{box-sizing:border-box;margin:0;padding:0}
+.nav-property-canvas{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;
+  color:#1a1a1a;font-size:16px;display:block;width:100%}
+.nav-property-canvas a{color:#990000;text-decoration:none}
+.nav-property-canvas a:hover{text-decoration:underline}
 
 /* ── Address Header Bar ── */
-.address-bar{background:#fff;border-bottom:3px solid #990000;padding:1.1rem 2.5rem;
-  display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap}
-.address-bar h1{font-size:1.45rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em}
-.address-bar .city-tag{font-size:.9rem;color:#708090;font-weight:500}
+.nav-property-canvas .address-bar{background:#fff;border-bottom:3px solid #990000;
+  padding:1.1rem 2.5rem;display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap}
+.nav-property-canvas .address-bar h1{font-size:1.45rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em}
+.nav-property-canvas .address-bar .city-tag{font-size:.9rem;color:#708090;font-weight:500}
 
-/* ── Hero — natural proportions ── */
-.hero{width:100%;position:relative;overflow:hidden}
-.hero img{width:100%;height:auto;display:block}
+/* ── Hero ── */
+.nav-property-canvas .hero{width:100%;position:relative;overflow:hidden}
+.nav-property-canvas .hero img{width:100%;height:auto;display:block}
 
 /* ── Floating stat card ── */
-.hero-stat-card{position:absolute;top:2rem;right:2rem;
+.nav-property-canvas .hero-stat-card{position:absolute;top:2rem;right:2rem;
   background:rgba(255,255,255,0.96);backdrop-filter:blur(10px);
   border-radius:14px;padding:1.25rem 1.5rem;min-width:190px;
   box-shadow:0 10px 40px rgba(0,0,0,0.28),0 2px 8px rgba(0,0,0,0.12)}
-.hsc-price{font-size:1.35rem;font-weight:900;color:#990000;margin-bottom:.65rem}
-.hsc-divider{height:1px;background:#eaeaea;margin-bottom:.65rem}
-.hsc-row{display:flex;justify-content:space-between;align-items:center;
+.nav-property-canvas .hsc-price{font-size:1.35rem;font-weight:900;color:#990000;margin-bottom:.65rem}
+.nav-property-canvas .hsc-divider{height:1px;background:#eaeaea;margin-bottom:.65rem}
+.nav-property-canvas .hsc-row{display:flex;justify-content:space-between;align-items:center;
   margin-bottom:.4rem;gap:1.5rem}
-.hsc-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#999}
-.hsc-val{font-size:.88rem;font-weight:700;color:#1a1a1a}
-.hsc-mls{margin-top:.65rem;font-size:.65rem;color:#aaa;text-transform:uppercase;letter-spacing:.06em}
+.nav-property-canvas .hsc-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#999}
+.nav-property-canvas .hsc-val{font-size:.88rem;font-weight:700;color:#1a1a1a}
+.nav-property-canvas .hsc-mls{margin-top:.65rem;font-size:.65rem;color:#aaa;
+  text-transform:uppercase;letter-spacing:.06em}
 
 /* ── Dual-header responsiveness ── */
-.desktop-header-view{display:flex}
-.mobile-header-view{display:none;text-align:center;padding:1.5rem 1rem;
+.nav-property-canvas .desktop-header-view{display:flex}
+.nav-property-canvas .mobile-header-view{display:none;text-align:center;padding:1.5rem 1rem;
   border-bottom:3px solid #990000;background:#fff}
-.mh-city{font-size:1.5rem;font-weight:900;color:#990000;margin-bottom:.35rem}
-.mh-address{font-size:.95rem;color:#0d0d0d;font-weight:600;margin-bottom:.75rem}
-.mobile-stats{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-bottom:.75rem}
-.mobile-stats span{background:#f4f4f4;border-radius:20px;padding:.25rem .75rem;font-size:.8rem;font-weight:600}
-.mobile-price{font-size:1.5rem;font-weight:900;color:#990000}
-.mobile-video-wrap{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;
-  background:#0d0d0d;margin-bottom:1.25rem;border-radius:4px}
-.mobile-video-wrap iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+.nav-property-canvas .mh-city{font-size:1.5rem;font-weight:900;color:#990000;margin-bottom:.35rem}
+.nav-property-canvas .mh-address{font-size:.95rem;color:#0d0d0d;font-weight:600;margin-bottom:.75rem}
+.nav-property-canvas .mobile-stats{display:flex;flex-wrap:wrap;gap:.5rem;
+  justify-content:center;margin-bottom:.75rem}
+.nav-property-canvas .mobile-stats span{background:#f4f4f4;border-radius:20px;
+  padding:.25rem .75rem;font-size:.8rem;font-weight:600}
+.nav-property-canvas .mobile-price{font-size:1.5rem;font-weight:900;color:#990000}
+.nav-property-canvas .mobile-video-wrap{position:relative;padding-bottom:56.25%;height:0;
+  overflow:hidden;background:#0d0d0d;margin-bottom:1.25rem;border-radius:4px}
+.nav-property-canvas .mobile-video-wrap iframe{position:absolute;top:0;left:0;
+  width:100%;height:100%;border:0}
 
 @media(max-width:767px){
-  .desktop-header-view{display:none!important}
-  .mobile-header-view{display:block!important;width:100%}
-  .hero-stat-card{display:none}
-  .address-bar h1{font-size:1.1rem}
-  .desktop-only{display:none!important}
+  .nav-property-canvas .desktop-header-view{display:none!important}
+  .nav-property-canvas .mobile-header-view{display:block!important;width:100%}
+  .nav-property-canvas .hero-stat-card{display:none}
+  .nav-property-canvas .address-bar h1{font-size:1.1rem}
+  .nav-property-canvas .desktop-only{display:none!important}
 }
 @media(min-width:768px){
-  .desktop-header-view{display:flex!important}
-  .mobile-header-view{display:none!important}
+  .nav-property-canvas .desktop-header-view{display:flex!important}
+  .nav-property-canvas .mobile-header-view{display:none!important}
 }
 
-/* ── Thumbnail strip slider ── */
-.thumb-strip{display:flex;gap:4px;margin:4px 0 0;background:#fff;overflow-x:auto;
-  scrollbar-width:thin;scrollbar-color:#444 #0d0d0d}
-.thumb-strip::-webkit-scrollbar{height:4px}
-.thumb-strip::-webkit-scrollbar-track{background:#0d0d0d}
-.thumb-strip::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
-.thumb-item{flex:0 0 20%;max-width:20%;cursor:pointer;overflow:hidden;aspect-ratio:4/3;
-  opacity:.6;transition:opacity .2s;outline:2px solid transparent;outline-offset:-2px}
-.thumb-item.active,.thumb-item:hover{opacity:1;outline:2px solid #990000}
-.thumb-item img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
-@media(max-width:600px){.thumb-item{flex:0 0 33.333%;max-width:33.333%}}
+/* ── Thumbnail strip ── */
+.nav-property-canvas .thumb-strip{display:flex;gap:4px;margin:4px 0 0;background:#fff;
+  overflow-x:auto;scrollbar-width:thin;scrollbar-color:#444 #0d0d0d}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar{height:4px}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar-track{background:#0d0d0d}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
+.nav-property-canvas .thumb-item{flex:0 0 20%;max-width:20%;cursor:pointer;overflow:hidden;
+  aspect-ratio:4/3;opacity:.6;transition:opacity .2s;
+  outline:2px solid transparent;outline-offset:-2px}
+.nav-property-canvas .thumb-item.active,
+.nav-property-canvas .thumb-item:hover{opacity:1;outline:2px solid #990000}
+.nav-property-canvas .thumb-item img{width:100%;height:100%;object-fit:cover;
+  display:block;pointer-events:none}
+@media(max-width:600px){.nav-property-canvas .thumb-item{flex:0 0 33.333%;max-width:33.333%}}
 
 /* ── Feature bullets ── */
-.features{padding:2rem 2.5rem;background:#fafafa}
-.features h2{font-size:1.1rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;
-  color:#990000;margin-bottom:1.2rem;border-bottom:2px solid #990000;padding-bottom:.4rem}
-.feat-grid{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-flow:column;
-  grid-template-rows:repeat(6,auto);gap:.55rem}
-.feat{font-size:.82rem;color:#333;display:flex;align-items:flex-start;gap:.4rem;line-height:1.35}
-.dot{color:#990000;flex-shrink:0;font-size:.6rem;margin-top:.2rem}
-@media(max-width:700px){.feat-grid{grid-template-columns:repeat(2,1fr);grid-auto-flow:row;grid-template-rows:none}}
+.nav-property-canvas .features{display:block;width:100%;padding:2rem 2.5rem;background:#fafafa}
+.nav-property-canvas .features h2{font-size:1.1rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.07em;color:#990000;margin-bottom:1.2rem;
+  border-bottom:2px solid #990000;padding-bottom:.4rem}
+.nav-property-canvas .feat-grid{display:grid;grid-template-columns:repeat(4,1fr);
+  grid-auto-flow:column;grid-template-rows:repeat(6,auto);gap:.55rem}
+.nav-property-canvas .feat{font-size:.82rem;color:#333;display:flex;
+  align-items:flex-start;gap:.4rem;line-height:1.35}
+.nav-property-canvas .dot{color:#990000;flex-shrink:0;font-size:.6rem;margin-top:.2rem}
+@media(max-width:700px){.nav-property-canvas .feat-grid{grid-template-columns:repeat(2,1fr);
+  grid-auto-flow:row;grid-template-rows:none}}
 
 /* ── CSS Radio Tabs ── */
-.tabs-wrap{padding:2rem 2.5rem}
-.tabs-wrap input[type=radio]{display:none}
-.tab-labels{display:flex;gap:0;border-bottom:2px solid #eaeaea;margin-bottom:1.5rem}
-.tab-labels label{padding:.6rem 1.4rem;font-size:.88rem;font-weight:600;cursor:pointer;
-  color:#708090;border-bottom:3px solid transparent;margin-bottom:-2px;transition:color .15s}
-.tab-labels label:hover{color:#990000}
-.panel{display:none;line-height:1.8;color:#333;font-size:.95rem}
-.panel p{margin-bottom:1rem}
-.panel h3{font-size:1.06rem;font-weight:800;color:#708090;letter-spacing:.01em;
-  line-height:1.35;margin:1.5rem 0 .45rem}
-.panel h3:first-child{margin-top:0}
-.panel strong{color:#990000;font-weight:700}
+.nav-property-canvas .tabs-wrap{display:block;width:100%;padding:2rem 2.5rem}
+.nav-property-canvas .tabs-wrap input[type=radio]{display:none}
+.nav-property-canvas .tab-labels{display:flex;gap:0;border-bottom:2px solid #eaeaea;
+  margin-bottom:1.5rem}
+.nav-property-canvas .tab-labels label{padding:.6rem 1.4rem;font-size:.88rem;font-weight:600;
+  cursor:pointer;color:#708090;border-bottom:3px solid transparent;
+  margin-bottom:-2px;transition:color .15s}
+.nav-property-canvas .tab-labels label:hover{color:#990000}
+.nav-property-canvas .panel{display:none;line-height:1.8;color:#333;font-size:.95rem}
+.nav-property-canvas .panel p{margin-bottom:1rem}
+.nav-property-canvas .panel h3{font-size:1.06rem;font-weight:800;color:#708090;
+  letter-spacing:.01em;line-height:1.35;margin:1.5rem 0 .45rem}
+.nav-property-canvas .panel h3:first-child{margin-top:0}
+.nav-property-canvas .panel strong{color:#990000;font-weight:700}
 
-/* ── Studeo — white canvas ── */
-.studeo{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:3rem;
+/* ── Studeo ── */
+.nav-property-canvas .studeo{display:grid;grid-template-columns:1fr 1fr;position:relative;
+  width:100%;align-items:center;gap:3rem;
   padding:3rem 2.5rem;background:#fff;border-top:1px solid #eaeaea}
-.studeo-left h3{font-size:1.25rem;font-weight:900;color:#0d0d0d;
+.nav-property-canvas .studeo-left h3{font-size:1.25rem;font-weight:900;color:#0d0d0d;
   margin-bottom:.9rem;line-height:1.3}
-.studeo-left p{color:#444;font-size:.92rem;line-height:1.8;margin-bottom:1rem}
-.studeo-left .click-cta{font-size:.85rem;font-weight:700;color:#990000;margin-top:.5rem}
-.studeo-right{text-align:center}
-@media(max-width:700px){.studeo{grid-template-columns:1fr}.studeo-right{margin-top:1.5rem}}
+.nav-property-canvas .studeo-left p{color:#444;font-size:.92rem;line-height:1.8;margin-bottom:1rem}
+.nav-property-canvas .studeo-left .click-cta{font-size:.85rem;font-weight:700;
+  color:#990000;margin-top:.5rem}
+.nav-property-canvas .studeo-right{text-align:center}
+@media(max-width:700px){
+  .nav-property-canvas .studeo{grid-template-columns:1fr}
+  .nav-property-canvas .studeo-right{margin-top:1.5rem}
+}
 
 /* ── Responsive Video Player ── */
-.video-wrap{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;
-  background:#0d0d0d;border-top:3px solid #990000}
-.video-wrap iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+.nav-property-canvas .video-wrap{position:relative;padding-bottom:56.25%;height:0;
+  overflow:hidden;background:#0d0d0d;border-top:3px solid #990000}
+.nav-property-canvas .video-wrap iframe{position:absolute;top:0;left:0;
+  width:100%;height:100%;border:0}
 
 /* ── Description panel H2 title banner ── */
-.desc-title{font-size:1.35rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em;
-  line-height:1.25;margin-bottom:1.1rem;padding-bottom:.6rem;
-  border-bottom:2px solid #eaeaea}
+.nav-property-canvas .desc-title{font-size:1.35rem;font-weight:900;color:#0d0d0d;
+  letter-spacing:-.02em;line-height:1.25;margin-bottom:1.1rem;
+  padding-bottom:.6rem;border-bottom:2px solid #eaeaea}
 
 /* ── Map ── */
-.map-wrap{height:420px;overflow:hidden;border-top:1px solid #eaeaea}
-.map-wrap iframe{width:100%;height:100%;border:0}
+.nav-property-canvas .map-wrap{height:420px;overflow:hidden;border-top:1px solid #eaeaea}
+.nav-property-canvas .map-wrap iframe{width:100%;height:100%;border:0}
 
 /* ── Footer ── */
-.footer{padding:2rem 2.5rem;border-top:3px solid #990000;
+.nav-property-canvas .footer{padding:2rem 2.5rem;border-top:3px solid #990000;
   background:#fff;font-size:.82rem;color:#708090;line-height:1.7}
-.footer strong{color:#0d0d0d}
+.nav-property-canvas .footer strong{color:#0d0d0d}
 """
 
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>{address}</title>
-<style>{css}
+    html = f"""<style>{css}
 {tab_css_show}
 </style>
-</head>
-<body>
+
+<div class="nav-property-canvas">
 
 <!-- Desktop Address Header Bar -->
 <div class="address-bar desktop-header-view">
@@ -1256,11 +1270,10 @@ a:hover{text-decoration:underline}
 
 <!-- Footer -->
 <footer class="footer">
-  Property page created by Ivan &nbsp;|&nbsp; {address} &nbsp;|&nbsp; MLS# {mls_no}
+  Property page created by Navigate Real Estate &nbsp;|&nbsp; {address} &nbsp;|&nbsp; MLS# {mls_no}
 </footer>
 
-</body>
-</html>"""
+</div><!-- /.nav-property-canvas -->"""
     return html
 
 
