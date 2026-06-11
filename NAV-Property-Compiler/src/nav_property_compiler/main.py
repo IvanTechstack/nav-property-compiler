@@ -1220,7 +1220,7 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
   <div class="mobile-price">{price}</div>
 </div>
 
-<!-- Media Block: Video Player (desktop) or Gallery Matrix -->
+<!-- Media Block: Video Player (desktop, if active) + Photo Gallery -->
 {(
     f'<div class="video-wrap desktop-only">'
     f'<iframe src="https://player.vimeo.com/video/{vimeo_id}'
@@ -1234,7 +1234,8 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     f' allow="fullscreen; accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"'
     f' allowfullscreen></iframe>'
     f'</div>'
-) if (media_type == "📺 YouTube Video" and youtube_id) else gallery_section}
+) if (media_type == "📺 YouTube Video" and youtube_id) else ""}
+{gallery_section}
 
 <!-- Property Highlights -->
 <section class="features">
