@@ -895,7 +895,10 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
         gallery_urls = [presigned_url(k, expires_in=604800) for k in img_keys]
         story_key = next((o["Key"] for o in objs if "story-cover" in o["Key"]), None)
         story_cover_url = presigned_url(story_key, expires_in=604800) if story_key else ""
-    except Exception:
+    except Exception as _gallery_exc:
+        import traceback as _tb
+        st.exception(_gallery_exc)
+        st.code(_tb.format_exc(), language="text")
         gallery_urls = []
         story_cover_url = ""
 
