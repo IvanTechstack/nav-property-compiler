@@ -982,8 +982,9 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
             f".nav-property-canvas #t{i}:checked~.tab-body #p{i}{{display:block;}}\n"
         )
 
-    # ── Map URL — full address encoded ─────────────────────────────────────
-    map_src = f"https://maps.google.com/maps?q={_up.quote(address)}&output=embed"
+    # ── Map URL — full address + city for accurate pin placement ───────────
+    full_address_string = f"{address}, {city}" if city else address
+    map_src = f"https://maps.google.com/maps?q={_up.quote(full_address_string)}&t=&z=14&ie=UTF8&iwloc=&output=embed"
 
     # ── Studeo right column ────────────────────────────────────────────────
     studeo_link = studeo_url or "#"
@@ -1066,7 +1067,7 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
 .nav-property-canvas .address-bar .city-tag{font-size:.9rem;color:#708090;font-weight:500}
 
 /* ── Hero ── */
-.nav-property-canvas .hero{display:block!important;width:100%;position:relative;overflow:hidden}
+.nav-property-canvas .hero{width:100%;position:relative;overflow:hidden}
 .nav-property-canvas .hero img{width:100%;height:auto;display:block}
 
 /* ── Floating stat card ── */

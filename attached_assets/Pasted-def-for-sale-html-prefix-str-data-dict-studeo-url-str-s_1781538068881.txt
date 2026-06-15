@@ -1,0 +1,428 @@
+def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
+    import urllib.parse as _up
+
+    stats    = data.get("stats", {})
+    address  = stats.get("address", prefix)
+    city     = stats.get("city", "")
+    price    = stats.get("price", "")
+    beds     = stats.get("beds", "")
+    baths    = stats.get("baths", "")
+    sqft     = stats.get("sqft", "")
+    lot_size = stats.get("lot_size", stats.get("lot", ""))
+    year     = stats.get("year", "")
+    mls_no   = stats.get("mls", "")
+
+    media_type = data.get("media_type", "🖼️ Image")
+    video_url  = data.get("video_url", "").strip()
+
+    # ── Video ID helpers ───────────────────────────────────────────────────
+    vimeo_id   = ""
+    youtube_id = ""
+    if "vimeo" in video_url.lower():
+        m = re.search(r'vimeo\.com/(?:video/)?(\d+)', video_url)
+        if m:
+            vimeo_id = m.group(1)
+    elif video_url:
+        m = (
+            re.search(r'[?&]v=([A-Za-z0-9_-]{11})', video_url)
+            or re.search(r'youtu\.be/([A-Za-z0-9_-]{11})', video_url)
+            or re.search(r'embed/([A-Za-z0-9_-]{11})', video_url)
+        )
+        if m:
+            youtube_id = m.group(1)
+
+    # ── R2 assets ─────────────────────────────────────────────────────────
+    folder = f"properties/{prefix}/"
+    try:
+        objs = list_objects(prefix=folder)
+        img_keys = [
+            o["Key"] for o in objs
+            if _is_image(o["Key"]) and "story-cover" not in o["Key"]
+        ]
+        saved = _load_sort_order(folder)
+        if saved:
+            s = set(img_keys)
+            img_keys = [k for k in saved if k in s] + [k for k in img_keys if k not in set(saved)]
+        gallery_urls = [presigned_url(k, expires_in=604800) for k in img_keys]
+        story_key = next((o["Key"] for o in objs if "story-cover" in o["Key"]), None)
+        story_cover_url = presigned_url(story_key, expires_in=604800) if story_key else ""
+    except Exception as _gallery_exc:
+        import traceback as _tb
+        st.exception(_gallery_exc)
+        st.code(_tb.format_exc(), language="text")
+        gallery_urls = []
+        story_cover_url = ""
+
+    try:
+        banner_url = presigned_url(f"{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp", expires_in=604800)
+    except Exception:
+        banner_url = ""
+
+    # ── Lightbox gallery ───────────────────────────────────────────────────
+    if gallery_urls:
+        lb_urls_js = json.dumps(gallery_urls)
+        thumb_items = "\\n".join(
+            f'  <div class="thumb-item{ " active" if i == 0 else ""}" '
+            f'onclick="lbOpen({i})">'
+            f'<img src="{u}" alt="Photo {i+1}" loading="lazy"></div>'
+            for i, u in enumerate(gallery_urls)
+        )
+        gallery_section = f\"\"\"<div class='thumb-strip'>
+{thumb_items}
+</div>
+
+<div id="lb" onclick="if(event.target===this)lbClose()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:9999;align-items:center;justify-content:center;flex-direction:column">
+  <button onclick="lbClose()" title="Close" style="position:absolute;top:.8rem;right:1.2rem;background:none;border:none;color:#fff;font-size:2.6rem;line-height:1;cursor:pointer;opacity:.75">×</button>
+  <button onclick="lbNav(-1)" title="Previous" style="position:absolute;left:.75rem;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:.55rem 1.1rem;border-radius:8px;transition:background .15s">←</button>
+  <img id="lb-img" style="max-width:90vw;max-height:86vh;object-fit:contain;border-radius:6px;box-shadow:0 12px 60px rgba(0,0,0,.7)" alt="">
+  <button onclick="lbNav(1)" title="Next" style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:.55rem 1.1rem;border-radius:8px;transition:background .15s">→</button>
+  <div id="lb-count" style="color:rgba(255,255,255,.5);font-size:.78rem;margin-top:.9rem;letter-spacing:.04em"></div>
+</div>
+<script>
+(function(){{
+  var lb=document.getElementById('lb');
+  var urls={lb_urls_js};
+  var idx=0;
+  function show(){{document.getElementById('lb-img').src=urls[idx];document.getElementById('lb-count').textContent=(idx+1)+' / '+urls.length;}}
+  window.lbOpen=function(i){{idx=i;show();lb.style.display='flex';}};
+  window.lbClose=function(){{lb.style.display='none';}};
+  window.lbNav=function(d){{idx=(idx+d+urls.length)%urls.length;show();}};
+  document.addEventListener('keydown',function(e){{
+    if(lb.style.display==='none')return;
+    if(e.key==='ArrowLeft')lbNav(-1);
+    else if(e.key==='ArrowRight')lbNav(1);
+    else if(e.key==='Escape')lbClose();
+  }});
+}})();
+</script>\"\"\"
+    else:
+        gallery_section = ""
+
+    # ── Property Highlights: 6 fixed + 18 dynamic ─────────────────────────
+    fixed_6 = [
+        f"MLS# {mls_no}" if mls_no else "MLS# —",
+        f"{beds} Bedrooms" if beds else "Bedrooms: —",
+        f"{baths} Bathrooms" if baths else "Bathrooms: —",
+        f"{sqft} sq ft Living Area" if sqft else "Living Area: —",
+        f"{lot_size} Lot Size" if lot_size else "Lot Size: —",
+        f"Built {year}" if year else "Year Built: —",
+    ]
+    dynamic_18 = data.get("bullets_24", [])[:18]
+    all_bullets = fixed_6 + dynamic_18
+    bullets_html = "".join(
+        f"<div class='feat'><span class='dot'>●</span>{b}</div>"
+        for b in all_bullets
+    )
+
+    # ── CSS radio tabs ─────────────────────────────────────────────────────
+    tabs_content = {
+        "Description":  data.get("full_description", ""),
+        "Neighborhood": data.get("neighborhood", ""),
+        "Location":      data.get("location", ""),
+        "City":          data.get("city_tab", ""),
+    }
+    tab_inputs = tab_labels = tab_panels = tab_css_show = ""
+    for i, (name, content) in enumerate(tabs_content.items(), 1):
+        checked = "checked" if i == 1 else ""
+        tab_inputs   += f'<input type="radio" name="tab" id="t{i}" {checked}>\\n'
+        tab_labels   += f'<label for="t{i}">{name}</label>\\n'
+        tab_panels   += f'<div class="panel" id="p{i}">{content}</div>\\n'
+        tab_css_show += (
+            f".nav-property-canvas #t{i}:checked~.tab-labels label[for='t{i}']"
+            f"{{color:#990000;border-bottom:3px solid #990000;}}\\n"
+            f".nav-property-canvas #t{i}:checked~.tab-body #p{i}{{display:block;}}\\n"
+        )
+
+    # ── Valid Google Map Embed Configuration ───────────────────────────────
+    full_address_string = f"{address}, {city}"
+    map_src = f"https://maps.google.com/maps?q={_up.quote(full_address_string)}&t=&z=14&ie=UTF8&iwloc=&output=embed"
+
+    # ── Studeo right column ────────────────────────────────────────────────
+    studeo_link = studeo_url or "#"
+    if story_cover_url:
+        studeo_right_html = (
+            f'<a href="{studeo_link}" target="_blank" rel="noopener">'
+            f'<img src="{story_cover_url}" alt="Story Cover" loading="eager" '
+            f'decoding="async" '
+            f'style="width:100%;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.12);'
+            f'display:block;cursor:pointer"></a>'
+        )
+    else:
+        studeo_right_html = (
+            f'<a href="{studeo_link}" target="_blank" rel="noopener" '
+            f'style="display:inline-block;padding:1rem 2rem;background:#f4f4f4;'
+            f'border-radius:10px;font-weight:700;color:#990000;font-size:.95rem">'
+            f'Click to Explore the Booklet →</a>'
+        )
+
+    # ── Floating stat card HTML ────────────────────────────────────────────
+    stat_card_html = f\"\"\"
+<div class="hero-stat-card">
+  <div class="hsc-price">{price}</div>
+  <div class="hsc-divider"></div>
+  <div class="hsc-row"><span class="hsc-label">Beds</span><span class="hsc-val">{beds}</span></div>
+  <div class="hsc-row"><span class="hsc-label">Baths</span><span class="hsc-val">{baths}</span></div>
+  <div class="hsc-row"><span class="hsc-label">Living Area</span><span class="hsc-val">{sqft} sq ft</span></div>
+  <div class="hsc-row"><span class="hsc-label">Year Built</span><span class="hsc-val">{year}</span></div>
+  <div class="hsc-mls">MLS# {mls_no}</div>
+</div>\"\"\"
+
+    # Video mode: suppress the static hero entirely so nothing stacks
+    _video_active = (
+        (media_type == "🎥 Vimeo Video" and vimeo_id)
+        or (media_type == "📺 YouTube Video" and youtube_id)
+    )
+    hero_html = ""
+    if not _video_active:
+        initial_src = banner_url or (gallery_urls[0] if gallery_urls else "")
+        if initial_src:
+            hero_html = (
+                f'<div class="hero">'
+                f'<img id="hero-main" src="{initial_src}" alt="{address}">'
+                f'{stat_card_html}'
+                f'</div>'
+            )
+
+    # ── Mobile video block — shown at top of mobile-header-view ───────────
+    _mobile_video_html = ""
+    if vimeo_id and media_type == "🎥 Vimeo Video":
+        _mobile_video_html = (
+            f'<div class="mobile-video-wrap">'
+            f'<iframe src="https://player.vimeo.com/video/{vimeo_id}'
+            f'?title=0&byline=0&portrait=0"'
+            f' allow="fullscreen; picture-in-picture" allowfullscreen></iframe>'
+            f'</div>'
+        )
+    elif youtube_id and media_type == "📺 YouTube Video":
+        _mobile_video_html = (
+            f'<div class="mobile-video-wrap">'
+            f'<iframe src="https://www.youtube.com/embed/{youtube_id}'
+            f'?controls=1&rel=0&modestbranding=1&playsinline=1"'
+            f' allow="fullscreen; accelerometer; clipboard-write; encrypted-media;'
+            f' gyroscope; picture-in-picture" allowfullscreen></iframe>'
+            f'</div>'
+        )
+
+    css = \"\"\"
+/* ── Canvas reset & base ── */
+.nav-property-canvas *{{box-sizing:border-box;margin:0;padding:0}}
+.nav-property-canvas{{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;
+  color:#1a1a1a;font-size:16px;display:block;width:100%}}
+.nav-property-canvas a{{color:#990000;text-decoration:none}}
+.nav-property-canvas a:hover{{text-decoration:underline}}
+
+/* ── Address Header Bar ── */
+.nav-property-canvas .address-bar{{background:#fff;border-bottom:3px solid #990000;
+  padding:1.1rem 2.5rem;display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap}}
+.nav-property-canvas .address-bar h1{{font-size:1.45rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em}}
+.nav-property-canvas .address-bar .city-tag{{font-size:.9rem;color:#708090;font-weight:500}}
+
+/* ── Hero ── */
+.nav-property-canvas .hero{{width:100%;position:relative;overflow:hidden;display:block!important}}
+.nav-property-canvas .hero img{{width:100%;height:auto;display:block}}
+
+/* ── Floating stat card ── */
+.nav-property-canvas .hero-stat-card{{position:absolute;top:2rem;right:2rem;
+  background:rgba(255,255,255,0.96);backdrop-filter:blur(10px);
+  border-radius:14px;padding:1.25rem 1.5rem;min-width:190px;
+  box-shadow:0 10px 40px rgba(0,0,0,0.28),0 2px 8px rgba(0,0,0,0.12)}}
+.nav-property-canvas .hsc-price{{font-size:1.35rem;font-weight:900;color:#990000;margin-bottom:.65rem}}
+.nav-property-canvas .hsc-divider{{height:1px;background:#eaeaea;margin-bottom:.65rem}}
+.nav-property-canvas .hsc-row{{display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:.4rem;gap:1.5rem}}
+.nav-property-canvas .hsc-label{{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#999}}
+.nav-property-canvas .hsc-val{{font-size:.88rem;font-weight:700;color:#1a1a1a}}
+.nav-property-canvas .hsc-mls{{margin-top:.65rem;font-size:.65rem;color:#aaa;
+  text-transform:uppercase;letter-spacing:.06em}}
+
+/* ── Dual-header responsiveness ── */
+.nav-property-canvas .desktop-header-view{{display:flex}}
+.nav-property-canvas .mobile-header-view{{display:none;text-align:center;padding:1.5rem 1rem;
+  border-bottom:3px solid #990000;background:#fff}}
+.nav-property-canvas .mh-city{{font-size:1.5rem;font-weight:900;color:#990000;margin-bottom:.35rem}}
+.nav-property-canvas .mh-address{{font-size:.95rem;color:#0d0d0d;font-weight:600;margin-bottom:.75rem}}
+.nav-property-canvas .mobile-stats{{display:flex;flex-wrap:wrap;gap:.5rem;
+  justify-content:center;margin-bottom:.75rem}}
+.nav-property-canvas .mobile-stats span{{background:#f4f4f4;border-radius:20px;
+  padding:.25rem .75rem;font-size:.8rem;font-weight:600}}
+.nav-property-canvas .mobile-price{{font-size:1.5rem;font-weight:900;color:#990000}}
+.nav-property-canvas .mobile-video-wrap{{position:relative;padding-bottom:56.25%;height:0;
+  overflow:hidden;background:#0d0d0d;margin-bottom:1.25rem;border-radius:4px}}
+.nav-property-canvas .mobile-video-wrap iframe{{position:absolute;top:0;left:0;
+  width:100%;height:100%;border:0}}
+
+@media(max-width:767px){
+  .nav-property-canvas .desktop-header-view{{display:none!important}}
+  .nav-property-canvas .mobile-header-view{{display:block!important;width:100%}}
+  .nav-property-canvas .hero-stat-card{{display:none}}
+  .nav-property-canvas .address-bar h1{{font-size:1.1rem}}
+  .nav-property-canvas .desktop-only{{display:none!important}}
+}
+@media(min-width:768px){
+  .nav-property-canvas .desktop-header-view{{display:flex!important}}
+  .nav-property-canvas .mobile-header-view{{display:none!important}}
+}
+
+/* ── Thumbnail strip ── */
+.nav-property-canvas .thumb-strip{{display:flex;gap:4px;margin:4px 0 0;background:#fff;
+  overflow-x:auto;scrollbar-width:thin;scrollbar-color:#444 #0d0d0d}}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar{{height:4px}}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar-track{{background:#0d0d0d}}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar-thumb{{background:#444;border-radius:2px}}
+.nav-property-canvas .thumb-item{{flex:0 0 20%;max-width:20%;cursor:pointer;overflow:hidden;
+  aspect-ratio:4/3;opacity:.6;transition:opacity .2s;
+  outline:2px solid transparent;outline-offset:-2px}}
+.nav-property-canvas .thumb-item.active,
+.nav-property-canvas .thumb-item:hover{{opacity:1;outline:2px solid #990000}}
+.nav-property-canvas .thumb-item img{{width:100%;height:100%;object-fit:cover;
+  display:block;pointer-events:none}}
+@media(max-width:600px){.nav-property-canvas .thumb-item{{flex:0 0 33.333%;max-width:33.333%}}}
+
+/* ── Feature bullets ── */
+.nav-property-canvas .features{{display:block;width:100%;padding:2rem 2.5rem;background:#fafafa}}
+.nav-property-canvas .features h2{{font-size:1.1rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.07em;color:#990000;margin-bottom:1.2rem;
+  border-bottom:2px solid #990000;padding-bottom:.4rem}}
+.nav-property-canvas .feat-grid{{display:grid;grid-template-columns:repeat(4,1fr);
+  grid-auto-flow:column;grid-template-rows:repeat(6,auto);gap:.55rem}}
+.nav-property-canvas .feat{{font-size:.82rem;color:#333;display:flex;
+  align-items:flex-start;gap:.4rem;line-height:1.35}}
+.nav-property-canvas .dot{{color:#990000;flex-shrink:0;font-size:.6rem;margin-top:.2rem}}
+@media(max-width:700px){.nav-property-canvas .feat-grid{{grid-template-columns:repeat(2,1fr);
+  grid-auto-flow:row;grid-template-rows:none}}}
+
+/* ── CSS Radio Tabs ── */
+.nav-property-canvas .tabs-wrap{{display:block;width:100%;padding:2rem 2.5rem}}
+.nav-property-canvas .tabs-wrap input[type=radio]{{display:none}}
+.nav-property-canvas .tab-labels{{display:flex;gap:0;border-bottom:2px solid #eaeaea;
+  margin-bottom:1.5rem}}
+.nav-property-canvas .tab-labels label{{padding:.6rem 1.4rem;font-size:.88rem;font-weight:600;
+  cursor:pointer;color:#708090;border-bottom:3px solid transparent;
+  margin-bottom:-2px;transition:color .15s}}
+.nav-property-canvas .tab-labels label:hover{{color:#990000}}
+.nav-property-canvas .panel{{display:none;line-height:1.8;color:#333;font-size:.95rem}}
+.nav-property-canvas .panel p{{margin-bottom:1rem}}
+.nav-property-canvas .panel h3{{font-size:1.06rem;font-weight:800;color:#708090;
+  letter-spacing:.01em;line-height:1.35;margin:1.5rem 0 .45rem}}
+.nav-property-canvas .panel h3:first-child{{margin-top:0}}
+.nav-property-canvas .panel strong{{color:#990000;font-weight:700}}
+
+/* ── Studeo ── */
+.nav-property-canvas .studeo{{display:grid;grid-template-columns:1fr 1fr;position:relative;
+  width:100%;align-items:center;gap:3rem;
+  padding:3rem 2.5rem;background:#fff;border-top:1px solid #eaeaea}}
+.nav-property-canvas .studeo-left h3{{font-size:1.25rem;font-weight:900;color:#0d0d0d;
+  margin-bottom:.9rem;line-height:1.3}}
+.nav-property-canvas .nav-property-canvas .studeo-left p{{color:#444;font-size:.92rem;line-height:1.8;margin-bottom:1rem}}
+.nav-property-canvas .studeo-left .click-cta{{font-size:.85rem;font-weight:700;
+  color:#990000;margin-top:.5rem}}
+.nav-property-canvas .studeo-right{{text-align:center}}
+@media(max-width:700px){
+  .nav-property-canvas .studeo{{grid-template-columns:1fr}}
+  .nav-property-canvas .studeo-right{{margin-top:1.5rem}}
+}
+
+/* ── Responsive Video Player ── */
+.nav-property-canvas .video-wrap{{position:relative;padding-bottom:56.25%;height:0;
+  overflow:hidden;background:#0d0d0d;border-top:3px solid #990000}}
+.nav-property-canvas .video-wrap iframe{{position:absolute;top:0;left:0;
+  width:100%;height:100%;border:0}}
+
+/* ── Description panel H2 title banner ── */
+.nav-property-canvas .desc-title{{font-size:1.35rem;font-weight:900;color:#0d0d0d;
+  letter-spacing:-.02em;line-height:1.25;margin-bottom:1.1rem;
+  padding-bottom:.6rem;border-bottom:2px solid #eaeaea}}
+
+/* ── Map ── */
+.nav-property-canvas .map-wrap{{height:420px;overflow:hidden;border-top:1px solid #eaeaea}}
+.nav-property-canvas .map-wrap iframe{{width:100%;height:100%;border:0}}
+
+/* ── Footer ── */
+.nav-property-canvas .footer{{padding:2rem 2.5rem;border-top:3px solid #990000;
+  background:#fff;font-size:.82rem;color:#708090;line-height:1.7}}
+.nav-property-canvas .footer strong{{color:#0d0d0d}}
+\"\"\"
+
+    html = f\"\"\"<style>{css}
+{tab_css_show}
+</style>
+
+<div class=\"nav-property-canvas\">
+
+<div class=\"address-bar desktop-header-view\">
+  <span style=\"background:#990000;color:#fff;font-size:.72rem;font-weight:900;
+    letter-spacing:.12em;text-transform:uppercase;padding:.35rem .85rem;
+    border-radius:3px;flex-shrink:0;line-height:1\">FOR SALE</span>
+  <h1>{address}</h1>
+  { '<span class=\"city-tag\">' + city + '</span>' if city else '' }
+</div>
+
+{hero_html}
+
+<div class=\"mobile-header-view\">
+  {_mobile_video_html}
+  { '<h2 class=\"mh-city\">' + city + '</h2>' if city else '' }
+  <p class=\"mh-address\">{address}</p>
+  <div class=\"mobile-stats\">
+    <span>🏢 {beds} Beds</span>
+    <span>🛀 {baths} Baths</span>
+    <span>📌 {sqft} sq ft</span>
+    <span>📅 Built {year}</span>
+  </div>
+  <div class=\"mobile-price\">{price}</div>
+</div>
+
+{(
+    f'<div class="video-wrap desktop-only">'
+    f'<iframe src="https://player.vimeo.com/video/{vimeo_id}'
+    f'?title=0&byline=0&portrait=0"'
+    f' allow="fullscreen; picture-in-picture" allowfullscreen></iframe>'
+    f'</div>'
+) if (media_type == "🎥 Vimeo Video" and vimeo_id) else (
+    f'<div class="video-wrap desktop-only">'
+    f'<iframe src="https://www.youtube.com/embed/{youtube_id}'
+    f'?controls=1&rel=0&modestbranding=1&playsinline=1"'
+    f' allow="fullscreen; accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"'
+    f' allowfullscreen></iframe>'
+    f'</div>'
+) if (media_type == "📺 YouTube Video" and youtube_id) else ""}
+{gallery_section}
+
+<section class="features">
+  <h2>Property Highlights</h2>
+  <div class="feat-grid">
+{bullets_html}
+  </div>
+</section>
+
+<div class="tabs-wrap">
+{tab_inputs}
+<div class="tab-labels">
+{tab_labels}
+</div>
+<div class="tab-body">
+{tab_panels}
+</div>
+</div>
+
+<div class="studeo">
+  <div class="studeo-left">
+    <h3>Every Home Has a Story — Experience This One</h3>
+    <p>At Navigate Real Estate, we believe every home deserves to have its story told. To the right, you’ll find an interactive digital booklet that brings this property to life. Take the tour and explore every detail — from standout features and modern comforts to the neighborhood amenities that make this area such a great place to call home. Click now to watch the story and see if this could be your next chapter.</p>
+    <p class="click-cta">Click the image to the right and read this home’s story.</p>
+  </div>
+  <div class="studeo-right">
+    {studeo_right_html}
+  </div>
+</div>
+
+<div class="map-wrap">
+  <iframe src="{map_src}" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+</div>
+
+<footer class="footer">
+  Property page created by Navigate Real Estate  |  {address}  |  MLS# {mls_no}
+</footer>
+
+</div>\"\"\"
+    return html
