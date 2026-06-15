@@ -1066,7 +1066,7 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
 .nav-property-canvas .address-bar .city-tag{font-size:.9rem;color:#708090;font-weight:500}
 
 /* ── Hero ── */
-.nav-property-canvas .hero{width:100%;position:relative;overflow:hidden}
+.nav-property-canvas .hero{display:block!important;width:100%;position:relative;overflow:hidden}
 .nav-property-canvas .hero img{width:100%;height:auto;display:block}
 
 /* ── Floating stat card ── */
