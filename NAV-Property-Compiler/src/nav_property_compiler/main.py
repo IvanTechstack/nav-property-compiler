@@ -213,7 +213,7 @@ def load_property_json(property_id: str) -> dict:
     return json.loads(raw)
 
 
-def _list_compiled_properties() -> list[str]:
+def _list_compiled_properties(include_sold: bool = False) -> list[str]:
     try:
         objs = list_objects("properties/")
         seen: set[str] = set()
@@ -225,6 +225,15 @@ def _list_compiled_properties() -> list[str]:
                 if len(parts) >= 3 and parts[1]:
                     pid = parts[1]
                     if pid not in seen:
+                        if not include_sold:
+                            # Skip sold listings — read the status flag cheaply
+                            try:
+                                _d = json.loads(download_object(k))
+                                if _d.get("status") == "sold":
+                                    seen.add(pid)
+                                    continue
+                            except Exception:
+                                pass
                         seen.add(pid)
                         ids.append(pid)
         def _nat_key(s: str) -> tuple:
@@ -2360,19 +2369,23 @@ def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
                         objs = list_objects(prefix=folder)
                         for o in objs:
                             delete_object(o["Key"])
-                        # Belt-and-suspenders: explicitly remove the tracking JSON so
-                        # this property no longer appears in the Load Existing Listing dropdown.
+                        # Mark the listing as sold in data.json rather than deleting it,
+                        # so pipeline queries can filter by status without losing history.
                         try:
-                            delete_object(f"properties/{prefix}/data.json")
+                            _sold_data = load_property_json(prefix)
                         except Exception:
-                            pass
+                            _sold_data = {}
+                        import datetime as _dt_sold
+                        _sold_data["status"]   = "sold"
+                        _sold_data["sold_at"]  = _dt_sold.datetime.utcnow().isoformat() + "Z"
+                        save_property_json(prefix, _sold_data)
                         # Clear editor session state so the dropdown resets immediately.
                         st.session_state.pop("last_gallery_keys", None)
                         st.session_state.pop("last_gallery_thumbs", None)
                         st.session_state.pop("_loaded_prop_id", None)
                         st.session_state.pop("load_prop_sel", None)
                         st.session_state.pop("compile_search_q", None)
-                        st.success(f"✓ `{folder}` wiped ({len(objs)} objects removed). Listing removed from tracking.")
+                        st.success(f"✓ `{folder}` wiped ({len(objs)} objects removed). Status marked **sold** in data.json.")
                     except Exception as exc:
                         st.error(f"Wipe failed: {exc}")
                         return
