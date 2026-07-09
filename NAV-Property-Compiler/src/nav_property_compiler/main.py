@@ -892,9 +892,9 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
         if saved:
             s = set(img_keys)
             img_keys = [k for k in saved if k in s] + [k for k in img_keys if k not in set(saved)]
-        gallery_urls = [f"https://media.navigatere.com/{k}" for k in img_keys]
+        gallery_urls = [f"https://navimages.com/{k}" for k in img_keys]
         story_key = next((o["Key"] for o in objs if "story-cover" in o["Key"]), None)
-        story_cover_url = f"https://media.navigatere.com/{story_key}" if story_key else ""
+        story_cover_url = f"https://navimages.com/{story_key}" if story_key else ""
     except Exception as _gallery_exc:
         import traceback as _tb
         st.exception(_gallery_exc)
@@ -902,7 +902,7 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
         gallery_urls = []
         story_cover_url = ""
 
-    banner_url = f"https://media.navigatere.com/{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp"
+    banner_url = f"https://navimages.com/{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp"
 
     # ── Lightbox gallery ───────────────────────────────────────────────────
     if gallery_urls:
@@ -1293,7 +1293,7 @@ def _sold_html(prefix: str, data: dict) -> str:
     year    = stats.get("year", "")
     city    = stats.get("city", "")
 
-    banner_url = f"https://media.navigatere.com/{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp"
+    banner_url = f"https://navimages.com/{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp"
 
     css = """
 *{box-sizing:border-box;margin:0;padding:0}
