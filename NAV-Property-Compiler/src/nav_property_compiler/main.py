@@ -2473,4 +2473,61 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+
+    if "--recompile-all" in _sys.argv:
+        # ── CLI batch-recompile mode ──────────────────────────────────────
+        # Patch Streamlit calls that _for_sale_html uses in its error handler
+        # so they print to stderr instead of crashing outside a server context.
+        import traceback as _tb_cli
+
+        st.exception = lambda e: print(f"[WARN] {e}", file=_sys.stderr)
+        st.code      = lambda *a, **kw: print(*a, file=_sys.stderr)
+
+        print("=" * 60)
+        print("  NAV Property Compiler — Recompile All")
+        print("=" * 60)
+
+        # Verify R2 credentials before doing anything.
+        try:
+            _load_r2_config()
+        except EnvironmentError as _cli_env_err:
+            print(f"\n[ERROR] {_cli_env_err}", file=_sys.stderr)
+            print(
+                "Set R2_ENDPOINT_URL, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY "
+                "as environment variables and retry.",
+                file=_sys.stderr,
+            )
+            _sys.exit(1)
+
+        props = _list_compiled_properties()
+        if not props:
+            print("\nNo compiled properties found in R2 (no data.json files).")
+            _sys.exit(0)
+
+        print(f"\nFound {len(props)} propert{'y' if len(props)==1 else 'ies'}:")
+        for _p in props:
+            print(f"  • {_p}")
+        print()
+
+        _ok = _err = 0
+        for _pid in props:
+            try:
+                _data       = load_property_json(_pid)
+                _studeo_url = _data.get("studeo_url", "")
+                _html       = _for_sale_html(_pid, _data, _studeo_url)
+                _r2_key     = f"properties/{_pid}/listing.html"
+                upload_object(_r2_key, _html.encode("utf-8"), "text/html; charset=utf-8")
+                print(f"  ✓  {_pid:<40}  →  {_r2_key}  ({len(_html):,} chars)")
+                _ok += 1
+            except Exception as _cli_exc:
+                print(f"  ✗  {_pid}: {_cli_exc}", file=_sys.stderr)
+                _tb_cli.print_exc(file=_sys.stderr)
+                _err += 1
+
+        print()
+        print(f"Done — {_ok} succeeded, {_err} failed.")
+        _sys.exit(0 if _err == 0 else 1)
+
+    else:
+        main()
