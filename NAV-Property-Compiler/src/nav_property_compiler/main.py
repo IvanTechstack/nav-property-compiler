@@ -247,7 +247,7 @@ def _list_compiled_properties(include_sold: bool = False) -> list[str]:
 def _build_compile_payload(prefix: str, result: dict, studeo_url: str = "") -> dict:
     import datetime as _dt
     stats = result.get("stats", {})
-    return {
+    payload = {
         "property_id": prefix,
         "studeo_url": studeo_url,
         "media_type": result.get("media_type", "🖼️ Image"),
@@ -266,6 +266,12 @@ def _build_compile_payload(prefix: str, result: dict, studeo_url: str = "") -> d
         "property_display_city":    stats.get("city", ""),
         "property_display_slug":    prefix,
     }
+    # Portfolio / Multi-Parcel fields — only written when is_portfolio=True
+    if result.get("is_portfolio"):
+        payload["is_portfolio"] = True
+        payload["prop_a"] = result.get("prop_a", {})
+        payload["prop_b"] = result.get("prop_b", {})
+    return payload
 
 
 def _populate_editor_state(property_id: str, data: dict, studeo_url: str = "") -> None:
@@ -292,6 +298,24 @@ def _populate_editor_state(property_id: str, data: dict, studeo_url: str = "") -
         f"• {b}" for b in data.get("flyer_bullets", [])
     )
     st.session_state["ed_social_post"]   = data.get("social_post", "")
+    # ── Portfolio / Multi-Parcel fields ───────────────────────────────────
+    st.session_state["ed_is_portfolio"]  = data.get("is_portfolio", False)
+    _pa = data.get("prop_a", {})
+    _pb = data.get("prop_b", {})
+    st.session_state["ed_prop_a_address"]     = _pa.get("address", "")
+    st.session_state["ed_prop_a_price"]       = _pa.get("price", "")
+    st.session_state["ed_prop_a_specs"]       = _pa.get("specs", "")
+    st.session_state["ed_prop_a_description"] = _pa.get("description", "")
+    st.session_state["ed_prop_a_bullets"]     = "\n".join(
+        f"• {b}" for b in _pa.get("bullets", [])
+    )
+    st.session_state["ed_prop_b_address"]     = _pb.get("address", "")
+    st.session_state["ed_prop_b_price"]       = _pb.get("price", "")
+    st.session_state["ed_prop_b_specs"]       = _pb.get("specs", "")
+    st.session_state["ed_prop_b_description"] = _pb.get("description", "")
+    st.session_state["ed_prop_b_bullets"]     = "\n".join(
+        f"• {b}" for b in _pb.get("bullets", [])
+    )
     st.session_state["ed_active"]        = True
     st.session_state.pop("ed_html_out", None)
 
@@ -374,7 +398,7 @@ def _editor_to_result() -> dict:
     into proper <p> and <h3> markup so the compiled template renders with
     correct spacing and typography.
     """
-    return {
+    result = {
         "stats": {
             "price":    st.session_state.get("ed_price", ""),
             "mls":      st.session_state.get("ed_mls", ""),
@@ -401,6 +425,38 @@ def _editor_to_result() -> dict:
         ],
         "social_post": st.session_state.get("ed_social_post", ""),
     }
+    # ── Portfolio / Multi-Parcel fields ───────────────────────────────────
+    if st.session_state.get("ed_is_portfolio"):
+        result["is_portfolio"] = True
+        result["prop_a"] = {
+            "address":     st.session_state.get("ed_prop_a_address", ""),
+            "price":       st.session_state.get("ed_prop_a_price", ""),
+            "specs":       st.session_state.get("ed_prop_a_specs", ""),
+            "description": _auto_format_content(
+                st.session_state.get("ed_prop_a_description", "")
+            ),
+            "bullets": [
+                b.lstrip("•").strip()
+                for b in st.session_state.get("ed_prop_a_bullets", "").splitlines()
+                if b.strip()
+            ],
+        }
+        result["prop_b"] = {
+            "address":     st.session_state.get("ed_prop_b_address", ""),
+            "price":       st.session_state.get("ed_prop_b_price", ""),
+            "specs":       st.session_state.get("ed_prop_b_specs", ""),
+            "description": _auto_format_content(
+                st.session_state.get("ed_prop_b_description", "")
+            ),
+            "bullets": [
+                b.lstrip("•").strip()
+                for b in st.session_state.get("ed_prop_b_bullets", "").splitlines()
+                if b.strip()
+            ],
+        }
+        # Also merge portfolio stats: units comes from stats dict for portfolio mode
+        result["stats"]["units"] = st.session_state.get("ed_units", "")
+    return result
 
 
 def presigned_url(key: str, expires_in: int = DOWNLOAD_EXPIRY) -> str:
@@ -749,6 +805,131 @@ def _compile_listing_ai(property_name: str, mls_text: str, studeo_url: str) -> d
         raise RuntimeError(f"OpenAI API error {exc.code}: {body}") from exc
 
     return json.loads(raw["choices"][0]["message"]["content"] or "{}")
+
+
+# ---------------------------------------------------------------------------
+# Portfolio / Multi-Parcel AI prompts & compiler
+# ---------------------------------------------------------------------------
+
+_AI_PORTFOLIO_SYSTEM = (
+    "You are Ivan — an elite real estate copywriter and hyper-local investigative journalist "
+    "for Navigate Real Estate, a premium California brokerage. "
+    "Your mission: turn raw multi-parcel portfolio data into world-class editorial content "
+    "that moves investors and buyers to action.\n\n"
+    "CORE MANDATE:\n"
+    "1. PRESERVE EVERY ASSET across both sub-properties. Every unit mix, parking stall, "
+    "upgrade, amenity, and lot feature must be explicitly named and celebrated.\n"
+    "2. WRITE EXPANSIVELY for each sub-property — rich, fully developed HTML descriptions.\n"
+    "3. INVESTIGATE THE LOCATION. Name real schools, parks, employers, transit, commute corridors.\n"
+    "4. HTML ONLY for all prose values: <h3> for subheadlines, <strong> for callouts, <p> for paragraphs. "
+    "Never output markdown, asterisks, or untagged prose.\n"
+    "5. Return ONLY valid JSON — no markdown fences, no preamble, no commentary."
+)
+
+_AI_PORTFOLIO_PROMPT = """\
+You are compiling a premium PORTFOLIO / MULTI-PARCEL real estate listing package.
+Two adjacent properties are being sold together as one combined investment offering.
+Analyze every line of both source materials and return a single valid JSON object.
+
+=== PROPERTY A SOURCE MATERIAL ===
+{mls_text_a}
+=== END PROPERTY A ===
+
+=== PROPERTY B SOURCE MATERIAL ===
+{mls_text_b}
+=== END PROPERTY B ===
+
+Portfolio ID / Name: {property_name}
+
+=== OUTPUT SCHEMA ===
+{{
+  "stats": {{
+    "address": "Combined headline address e.g. '8270 & 8276 Lancaster Dr'",
+    "city": "City, ST",
+    "price": "Combined asking price e.g. '$1,950,000'",
+    "units": "Combined unit/bed count e.g. '9 Units' or '12 Beds'"
+  }},
+
+  "prop_a": {{
+    "address": "Full street address for Property A",
+    "price": "Individual asking price for Property A e.g. '$950,000'",
+    "specs": "Unit mix and size summary e.g. '5 Units — 2BD/1BA × 3, 3BD/2BA × 2'",
+    "description": "Property A only — two or more deeply immersive HTML sections covering exterior, interior room-by-room tour, every upgrade and amenity. <strong> every standout feature. No asset may be omitted.",
+    "bullets": ["12 concise property feature bullets for Property A, 3-8 words each, plain text, no HTML"]
+  }},
+
+  "prop_b": {{
+    "address": "Full street address for Property B",
+    "price": "Individual asking price for Property B e.g. '$1,000,000'",
+    "specs": "Unit mix and size summary e.g. '4 Units — 2BD/1BA × 4'",
+    "description": "Property B only — two or more deeply immersive HTML sections covering exterior, interior room-by-room tour, every upgrade and amenity. <strong> every standout feature. No asset may be omitted.",
+    "bullets": ["12 concise property feature bullets for Property B, 3-8 words each, plain text, no HTML"]
+  }},
+
+  "neighborhood": "MICRO-MARKET POCKET — shared regional analysis for both properties. Named schools with ratings, named parks, trails, restaurants, fitness, lifestyle amenities. Write like a local insider.",
+
+  "location": "COMMUTING & CONNECTIVITY — shared regional analysis. Named freeway interchanges, drive times to major employers, BART/Amtrak options, regional positioning to wine country, coast, Bay Area, Sacramento.",
+
+  "city_tab": "THE CITY STORY — shared city-level profile. Culture, culinary scene, arts, events, major employers, economic drivers, median home value, school district ranking. Bold and persuasive.",
+
+  "bullets_24": ["24 portfolio-level feature bullets combining the best of both properties, 3-8 words each, plain text"],
+  "social_post": "Instagram/Facebook caption for the full portfolio — conversational, emoji-forward, call out the combined investment value, 2-3 power features across both parcels, CTA and hashtag block — plain text with real newlines"
+}}
+"""
+
+
+def _compile_listing_ai_portfolio(
+    property_name: str, mls_text_a: str, mls_text_b: str
+) -> dict:
+    """Call GPT-4o with the portfolio prompt; returns structured dict with prop_a + prop_b."""
+    import urllib.request as _ur
+    import urllib.error as _ue
+
+    api_key = (
+        _get_secret("AI_INTEGRATIONS_OPENAI_API_KEY")
+        or _get_secret("OPENAI_API_KEY")
+    )
+    if not api_key:
+        raise RuntimeError(
+            "No OpenAI key found. Set OPENAI_API_KEY or add the OpenAI integration in Streamlit secrets."
+        )
+    base_url = (_get_secret("AI_INTEGRATIONS_OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+    endpoint = f"{base_url}/chat/completions"
+
+    msg = _AI_PORTFOLIO_PROMPT.format(
+        property_name=property_name or "(not provided)",
+        mls_text_a=mls_text_a.strip(),
+        mls_text_b=mls_text_b.strip(),
+    )
+    payload = json.dumps({
+        "model": "gpt-4o",
+        "messages": [
+            {"role": "system", "content": _AI_PORTFOLIO_SYSTEM},
+            {"role": "user",   "content": msg},
+        ],
+        "response_format": {"type": "json_object"},
+        "max_tokens": 16384,
+    }).encode()
+
+    req = _ur.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with _ur.urlopen(req, timeout=120) as resp:
+            raw = json.loads(resp.read())
+    except _ue.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise RuntimeError(f"OpenAI API error {exc.code}: {body}") from exc
+
+    result = json.loads(raw["choices"][0]["message"]["content"] or "{}")
+    result["is_portfolio"] = True
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1888,6 +2069,397 @@ def page_browse() -> None:
         _render_folder_grid(_filtered_folders, prop_objects, master_objects)
 
 
+def _portfolio_for_sale_html(prefix: str, data: dict, studeo_url: str = "") -> str:  # noqa: ARG001
+    """Generate a portfolio / multi-parcel listing HTML page with split-screen comparison."""
+    import urllib.parse as _up
+
+    stats   = data.get("stats", {})
+    address = stats.get("address", prefix)
+    city    = stats.get("city", "")
+    price   = stats.get("price", "")
+    units   = stats.get("units", "")
+
+    prop_a = data.get("prop_a", {})
+    prop_b = data.get("prop_b", {})
+
+    pa_address = prop_a.get("address", "Property A")
+    pa_price   = prop_a.get("price", "")
+    pa_specs   = prop_a.get("specs", "")
+    pa_desc    = prop_a.get("description", "")
+    pa_bullets = prop_a.get("bullets", [])[:12]
+
+    pb_address = prop_b.get("address", "Property B")
+    pb_price   = prop_b.get("price", "")
+    pb_specs   = prop_b.get("specs", "")
+    pb_desc    = prop_b.get("description", "")
+    pb_bullets = prop_b.get("bullets", [])[:12]
+
+    # ── Address → URL slug for split-header lookup ─────────────────────────
+    def _addr_slug(addr: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", addr.lower()).strip("-")
+
+    pa_slug = _addr_slug(pa_address)
+    pb_slug = _addr_slug(pb_address)
+
+    # ── R2 assets ─────────────────────────────────────────────────────────
+    folder = f"properties/{prefix}/"
+    try:
+        objs = list_objects(prefix=folder)
+        img_keys = [
+            o["Key"] for o in objs
+            if _is_image(o["Key"]) and "story-cover" not in o["Key"]
+        ]
+        saved = _load_sort_order(folder)
+        if saved:
+            s = set(img_keys)
+            img_keys = [k for k in saved if k in s] + [k for k in img_keys if k not in set(saved)]
+        gallery_urls = [f"https://navimages.com/{k}" for k in img_keys]
+    except Exception:
+        gallery_urls = []
+        objs = []
+
+    banner_url = f"https://navimages.com/{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp"
+
+    # ── Split-header image resolution ─────────────────────────────────────
+    def _find_split_header(slug: str, fallback: str) -> str:
+        """Find {slug}-split-header.* in R2, fall back to gallery image if missing."""
+        slug_lower = slug.lower()
+        # Priority 1: matches slug AND -split-header
+        for o in objs:
+            key = o["Key"]
+            fname = key.split("/")[-1].lower()
+            if "-split-header" in fname and slug_lower in fname:
+                return f"https://navimages.com/{key}"
+        # Priority 2: any -split-header in folder
+        for o in objs:
+            key = o["Key"]
+            fname = key.split("/")[-1].lower()
+            if "-split-header" in fname and _is_image(key):
+                return f"https://navimages.com/{key}"
+        return fallback
+
+    fallback_a = gallery_urls[0] if gallery_urls else banner_url
+    fallback_b = gallery_urls[1] if len(gallery_urls) > 1 else fallback_a
+    split_header_a = _find_split_header(pa_slug, fallback_a)
+    split_header_b = _find_split_header(pb_slug, fallback_b)
+
+    # ── Lightbox gallery ───────────────────────────────────────────────────
+    if gallery_urls:
+        lb_urls_js = json.dumps(gallery_urls)
+        thumb_items = "\n".join(
+            f'  <div class="thumb-item{" active" if i == 0 else ""}" '
+            f'onclick="lbOpen({i})">'
+            f'<img src="{u}" alt="Photo {i+1}" loading="lazy"></div>'
+            for i, u in enumerate(gallery_urls)
+        )
+        gallery_section = f"""<div class='thumb-strip'>
+{thumb_items}
+</div>
+
+<div id="lb" onclick="if(event.target===this)lbClose()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:9999;align-items:center;justify-content:center;flex-direction:column">
+  <button onclick="lbClose()" title="Close" style="position:absolute;top:.8rem;right:1.2rem;background:none;border:none;color:#fff;font-size:2.6rem;line-height:1;cursor:pointer;opacity:.75">&times;</button>
+  <button onclick="lbNav(-1)" title="Previous" style="position:absolute;left:.75rem;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:.55rem 1.1rem;border-radius:8px;transition:background .15s">&#8592;</button>
+  <img id="lb-img" style="max-width:90vw;max-height:86vh;object-fit:contain;border-radius:6px;box-shadow:0 12px 60px rgba(0,0,0,.7)" alt="">
+  <button onclick="lbNav(1)" title="Next" style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:.55rem 1.1rem;border-radius:8px;transition:background .15s">&#8594;</button>
+  <div id="lb-count" style="color:rgba(255,255,255,.5);font-size:.78rem;margin-top:.9rem;letter-spacing:.04em"></div>
+</div>
+<script>
+(function(){{
+  var lb=document.getElementById('lb');
+  var urls={lb_urls_js};
+  var idx=0;
+  function show(){{document.getElementById('lb-img').src=urls[idx];document.getElementById('lb-count').textContent=(idx+1)+' / '+urls.length;}}
+  window.lbOpen=function(i){{idx=i;show();lb.style.display='flex';}};
+  window.lbClose=function(){{lb.style.display='none';}};
+  window.lbNav=function(d){{idx=(idx+d+urls.length)%urls.length;show();}};
+  document.addEventListener('keydown',function(e){{
+    if(lb.style.display==='none')return;
+    if(e.key==='ArrowLeft')lbNav(-1);
+    else if(e.key==='ArrowRight')lbNav(1);
+    else if(e.key==='Escape')lbClose();
+  }});
+}})();
+</script>"""
+    else:
+        gallery_section = ""
+
+    # ── Split column bullets HTML ──────────────────────────────────────────
+    def _col_bullets(bullets: list) -> str:
+        return "".join(
+            f"<div class='pf-bullet'><span class='pf-dot'>&#9679;</span>{b}</div>"
+            for b in bullets
+        )
+
+    # ── Portfolio tabs (Neighborhood / Location / City — no Description) ──
+    tabs_content = {
+        "Neighborhood": data.get("neighborhood", ""),
+        "Location":     data.get("location", ""),
+        "City":         data.get("city_tab", ""),
+    }
+    tab_inputs = tab_labels = tab_panels = tab_css_show = ""
+    for i, (name, content) in enumerate(tabs_content.items(), 1):
+        checked = "checked" if i == 1 else ""
+        tab_inputs  += f'<input type="radio" name="tab" id="t{i}" {checked}>\n'
+        tab_labels  += f'<label for="t{i}">{name}</label>\n'
+        tab_panels  += f'<div class="panel" id="p{i}">{content}</div>\n'
+        tab_css_show += (
+            f".nav-property-canvas #t{i}:checked~.tab-labels label[for='t{i}']"
+            f"{{color:#990000;border-bottom:3px solid #990000;}}\n"
+            f".nav-property-canvas #t{i}:checked~.tab-body #p{i}{{display:block;}}\n"
+        )
+
+    # ── Google Map ─────────────────────────────────────────────────────────
+    full_address_string = f"{address}, {city}" if city else address
+    map_src = (
+        f"https://maps.google.com/maps?q={_up.quote(full_address_string)}"
+        f"&t=&z=14&ie=UTF8&iwloc=&output=embed"
+    )
+
+    css = """
+/* ── Canvas reset & base ── */
+.nav-property-canvas *{box-sizing:border-box;margin:0;padding:0}
+.nav-property-canvas{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;
+  color:#1a1a1a;font-size:16px;display:block;width:100%}
+.nav-property-canvas a{color:#990000;text-decoration:none}
+.nav-property-canvas a:hover{text-decoration:underline}
+
+/* ── Address Header Bar ── */
+.nav-property-canvas .address-bar{background:#fff;border-bottom:3px solid #990000;
+  padding:1.1rem 2.5rem;display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap}
+.nav-property-canvas .address-bar h1{font-size:1.45rem;font-weight:900;color:#0d0d0d;letter-spacing:-.02em}
+.nav-property-canvas .address-bar .city-tag{font-size:.9rem;color:#708090;font-weight:500}
+
+/* ── Portfolio badge ── */
+.nav-property-canvas .portfolio-badge{background:#0d0d0d;color:#fff;font-size:.68rem;
+  font-weight:900;letter-spacing:.14em;text-transform:uppercase;padding:.35rem .85rem;
+  border-radius:3px;flex-shrink:0;line-height:1}
+
+/* ── Hero ── */
+.nav-property-canvas .hero{display:block!important;width:100%;position:relative;overflow:hidden}
+.nav-property-canvas .hero img{width:100%;height:auto;display:block}
+
+/* ── Hero stat card ── */
+.nav-property-canvas .hero-stat-card{position:absolute;top:2rem;right:2rem;
+  background:rgba(255,255,255,0.96);backdrop-filter:blur(10px);
+  border-radius:14px;padding:1.25rem 1.5rem;min-width:190px;
+  box-shadow:0 10px 40px rgba(0,0,0,0.28),0 2px 8px rgba(0,0,0,0.12)}
+.nav-property-canvas .hsc-price{font-size:1.35rem;font-weight:900;color:#990000;margin-bottom:.65rem}
+.nav-property-canvas .hsc-divider{height:1px;background:#eaeaea;margin-bottom:.65rem}
+.nav-property-canvas .hsc-row{display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:.4rem;gap:1.5rem}
+.nav-property-canvas .hsc-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#999}
+.nav-property-canvas .hsc-val{font-size:.88rem;font-weight:700;color:#1a1a1a}
+
+/* ── Mobile header ── */
+.nav-property-canvas .mobile-header-view{display:none;text-align:center;padding:1.5rem 1rem;
+  border-bottom:3px solid #990000;background:#fff}
+.nav-property-canvas .mh-city{font-size:1.5rem;font-weight:900;color:#990000;margin-bottom:.35rem}
+.nav-property-canvas .mh-address{font-size:.95rem;color:#0d0d0d;font-weight:600;margin-bottom:.75rem}
+.nav-property-canvas .mobile-stats{display:flex;flex-wrap:wrap;gap:.5rem;
+  justify-content:center;margin-bottom:.75rem}
+.nav-property-canvas .mobile-stats span{background:#f4f4f4;border-radius:20px;
+  padding:.25rem .75rem;font-size:.8rem;font-weight:600}
+.nav-property-canvas .mobile-price{font-size:1.5rem;font-weight:900;color:#990000}
+
+@media(max-width:767px){
+  .nav-property-canvas .desktop-header-view{display:none!important}
+  .nav-property-canvas .mobile-header-view{display:block!important;width:100%}
+  .nav-property-canvas .hero-stat-card{display:none}
+}
+@media(min-width:768px){
+  .nav-property-canvas .desktop-header-view{display:flex!important}
+  .nav-property-canvas .mobile-header-view{display:none!important}
+}
+
+/* ── Thumbnail strip ── */
+.nav-property-canvas .thumb-strip{display:flex;gap:4px;margin:4px 0 0;background:#fff;
+  overflow-x:auto;scrollbar-width:thin;scrollbar-color:#444 #0d0d0d}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar{height:4px}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar-track{background:#0d0d0d}
+.nav-property-canvas .thumb-strip::-webkit-scrollbar-thumb{background:#444;border-radius:2px}
+.nav-property-canvas .thumb-item{flex:0 0 20%;max-width:20%;cursor:pointer;overflow:hidden;
+  aspect-ratio:4/3;opacity:.6;transition:opacity .2s;
+  outline:2px solid transparent;outline-offset:-2px}
+.nav-property-canvas .thumb-item.active,
+.nav-property-canvas .thumb-item:hover{opacity:1;outline:2px solid #990000}
+.nav-property-canvas .thumb-item img{width:100%;height:100%;object-fit:cover;
+  display:block;pointer-events:none}
+@media(max-width:600px){.nav-property-canvas .thumb-item{flex:0 0 33.333%;max-width:33.333%}}
+
+/* ── Portfolio Split Section ── */
+.nav-property-canvas .portfolio-split-section{display:block;width:100%;
+  padding:0;background:#fafafa;border-top:3px solid #0d0d0d}
+.nav-property-canvas .portfolio-split-header{padding:1.5rem 2.5rem .75rem;background:#0d0d0d}
+.nav-property-canvas .portfolio-split-header h2{font-size:1.1rem;font-weight:900;
+  text-transform:uppercase;letter-spacing:.07em;color:#fff}
+.nav-property-canvas .portfolio-split-grid{display:grid;grid-template-columns:1fr 1fr;
+  gap:0;align-items:start}
+.nav-property-canvas .pf-col{padding:0;background:#fff;border:1px solid #eaeaea}
+.nav-property-canvas .pf-col:first-child{border-right:none}
+.nav-property-canvas .pf-col-img{width:100%;aspect-ratio:16/9;overflow:hidden;
+  border-bottom:3px solid #990000}
+.nav-property-canvas .pf-col-img img{width:100%;height:100%;object-fit:cover;display:block}
+.nav-property-canvas .pf-col-body{padding:1.75rem 2rem}
+.nav-property-canvas .pf-col-address{font-size:1.15rem;font-weight:900;color:#0d0d0d;
+  letter-spacing:-.01em;margin-bottom:.4rem}
+.nav-property-canvas .pf-col-price{font-size:1.4rem;font-weight:900;color:#990000;
+  margin-bottom:.35rem}
+.nav-property-canvas .pf-col-specs{font-size:.8rem;color:#708090;font-weight:600;
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:1.1rem;
+  padding-bottom:.75rem;border-bottom:1px solid #eaeaea}
+.nav-property-canvas .pf-col-desc{font-size:.9rem;color:#333;line-height:1.8;margin-bottom:1.25rem}
+.nav-property-canvas .pf-col-desc p{margin-bottom:.9rem}
+.nav-property-canvas .pf-col-desc h3{font-size:1rem;font-weight:800;color:#708090;
+  letter-spacing:.01em;margin:1.25rem 0 .4rem}
+.nav-property-canvas .pf-col-desc h3:first-child{margin-top:0}
+.nav-property-canvas .pf-col-desc strong{color:#990000;font-weight:700}
+.nav-property-canvas .pf-bullets-label{font-size:.72rem;font-weight:900;
+  text-transform:uppercase;letter-spacing:.08em;color:#999;margin-bottom:.6rem}
+.nav-property-canvas .pf-bullet{font-size:.82rem;color:#333;display:flex;
+  align-items:flex-start;gap:.4rem;line-height:1.35;margin-bottom:.3rem}
+.nav-property-canvas .pf-dot{color:#990000;flex-shrink:0;font-size:.6rem;margin-top:.2rem}
+@media(max-width:768px){
+  .nav-property-canvas .portfolio-split-grid{grid-template-columns:1fr}
+  .nav-property-canvas .pf-col:first-child{border-right:1px solid #eaeaea;border-bottom:none}
+}
+
+/* ── CSS Radio Tabs ── */
+.nav-property-canvas .tabs-wrap{display:block;width:100%;padding:2rem 2.5rem}
+.nav-property-canvas .tabs-wrap input[type=radio]{display:none}
+.nav-property-canvas .tab-labels{display:flex;gap:0;border-bottom:2px solid #eaeaea;
+  margin-bottom:1.5rem}
+.nav-property-canvas .tab-labels label{padding:.6rem 1.4rem;font-size:.88rem;font-weight:600;
+  cursor:pointer;color:#708090;border-bottom:3px solid transparent;
+  margin-bottom:-2px;transition:color .15s}
+.nav-property-canvas .tab-labels label:hover{color:#990000}
+.nav-property-canvas .panel{display:none;line-height:1.8;color:#333;font-size:.95rem}
+.nav-property-canvas .panel p{margin-bottom:1rem}
+.nav-property-canvas .panel h3{font-size:1.06rem;font-weight:800;color:#708090;
+  letter-spacing:.01em;line-height:1.35;margin:1.5rem 0 .45rem}
+.nav-property-canvas .panel h3:first-child{margin-top:0}
+.nav-property-canvas .panel strong{color:#990000;font-weight:700}
+
+/* ── Map ── */
+.nav-property-canvas .map-wrap{height:420px;overflow:hidden;border-top:1px solid #eaeaea}
+.nav-property-canvas .map-wrap iframe{width:100%;height:100%;border:0}
+
+/* ── Footer ── */
+.nav-property-canvas .footer{padding:2rem 2.5rem;border-top:3px solid #990000;
+  background:#fff;font-size:.82rem;color:#708090;line-height:1.7}
+.nav-property-canvas .footer strong{color:#0d0d0d}
+"""
+
+    html = f"""<style>{css}
+{tab_css_show}
+</style>
+
+<div class="nav-property-canvas">
+
+<!-- Desktop Address Header Bar -->
+<div class="address-bar desktop-header-view">
+  <span class="portfolio-badge">Portfolio</span>
+  <h1>{address}</h1>
+  {'<span class="city-tag">' + city + '</span>' if city else ''}
+  {('<span style="margin-left:auto;background:#f4f4f4;border-radius:20px;'
+    'padding:.3rem .9rem;font-size:.82rem;font-weight:700;color:#0d0d0d">'
+    + units + '</span>') if units else ''}
+  {('<span style="background:#990000;color:#fff;border-radius:20px;'
+    'padding:.3rem .9rem;font-size:.95rem;font-weight:900;margin-left:.5rem">'
+    + price + '</span>') if price else ''}
+</div>
+
+<!-- Hero Banner -->
+<div class="hero">
+  <img src="{banner_url}" alt="{address}">
+  <div class="hero-stat-card">
+    <div class="hsc-price">{price}</div>
+    <div class="hsc-divider"></div>
+    <div class="hsc-row"><span class="hsc-label">Combined</span><span class="hsc-val">{units}</span></div>
+    <div class="hsc-row"><span class="hsc-label">Property A</span><span class="hsc-val">{pa_price}</span></div>
+    <div class="hsc-row"><span class="hsc-label">Property B</span><span class="hsc-val">{pb_price}</span></div>
+  </div>
+</div>
+
+<!-- Mobile Header (hidden on desktop) -->
+<div class="mobile-header-view">
+  {'<h2 class="mh-city">' + city + '</h2>' if city else ''}
+  <p class="mh-address">{address}</p>
+  <div class="mobile-stats">
+    <span>{units}</span>
+    <span>A: {pa_price}</span>
+    <span>B: {pb_price}</span>
+  </div>
+  <div class="mobile-price">{price}</div>
+</div>
+
+<!-- Photo Gallery Thumbnail Strip -->
+{gallery_section}
+
+<!-- Portfolio Split Comparison -->
+<section class="portfolio-split-section">
+  <div class="portfolio-split-header">
+    <h2>The Portfolio &#8212; Property-by-Property Breakdown</h2>
+  </div>
+  <div class="portfolio-split-grid">
+
+    <!-- Column A -->
+    <div class="pf-col">
+      <div class="pf-col-img">
+        <img src="{split_header_a}" alt="{pa_address}" loading="lazy">
+      </div>
+      <div class="pf-col-body">
+        <div class="pf-col-address">{pa_address}</div>
+        <div class="pf-col-price">{pa_price}</div>
+        <div class="pf-col-specs">{pa_specs}</div>
+        <div class="pf-col-desc">{pa_desc}</div>
+        <div class="pf-bullets-label">Key Features</div>
+        {_col_bullets(pa_bullets)}
+      </div>
+    </div>
+
+    <!-- Column B -->
+    <div class="pf-col">
+      <div class="pf-col-img">
+        <img src="{split_header_b}" alt="{pb_address}" loading="lazy">
+      </div>
+      <div class="pf-col-body">
+        <div class="pf-col-address">{pb_address}</div>
+        <div class="pf-col-price">{pb_price}</div>
+        <div class="pf-col-specs">{pb_specs}</div>
+        <div class="pf-col-desc">{pb_desc}</div>
+        <div class="pf-bullets-label">Key Features</div>
+        {_col_bullets(pb_bullets)}
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- CSS Radio Tabs — Neighborhood / Location / City -->
+<div class="tabs-wrap">
+{tab_inputs}
+<div class="tab-labels">
+{tab_labels}
+</div>
+<div class="tab-body">
+{tab_panels}
+</div>
+</div>
+
+<!-- Google Map -->
+<div class="map-wrap">
+  <iframe src="{map_src}" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  Portfolio page created by Navigate Real Estate &nbsp;|&nbsp; {address} &nbsp;|&nbsp; {price}
+</footer>
+
+</div><!-- /.nav-property-canvas -->"""
+    return html
+
+
 def page_upload() -> None:
     st.header("Upload Images")
 
@@ -2121,19 +2693,53 @@ def page_compile() -> None:
 
     st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
 
+    # ── Portfolio / Multi-Parcel toggle ──────────────────────────────────────
+    is_portfolio = st.checkbox(
+        "🏢 Portfolio / Multi-Parcel Mode",
+        value=st.session_state.get("compile_is_portfolio", False),
+        key="compile_is_portfolio",
+        help=(
+            "Enable when two adjacent properties are being sold together as one combined "
+            "portfolio offering. Generates a split-screen comparison page instead of the "
+            "standard single-property template."
+        ),
+    )
+
     # ── Property & inputs ────────────────────────────────────────────────────
     left_col, right_col = st.columns([3, 1])
     with left_col:
-        mls_text = st.text_area(
-            "🔗 Paste Zillow Property URL or MLS Text Dump",
-            height=200,
-            placeholder=(
-                "Option A — paste a full Zillow listing URL:\n"
-                "https://www.zillow.com/homes/1133-ironwood-circle-fairfield-ca_rb/\n\n"
-                "Option B — paste the raw MLS text dump:\n"
-                "Include address, price, beds, baths, sq ft, year built, description, features, upgrades…"
-            ),
-        )
+        if is_portfolio:
+            mls_text_a = st.text_area(
+                "🔗 Property A — Paste MLS Text or Zillow URL",
+                height=160,
+                key="mls_text_a",
+                placeholder=(
+                    "Paste the full MLS text dump or Zillow URL for Property A\n"
+                    "(address, price, unit mix, beds, baths, sq ft, description, features…)"
+                ),
+            )
+            mls_text_b = st.text_area(
+                "🔗 Property B — Paste MLS Text or Zillow URL",
+                height=160,
+                key="mls_text_b",
+                placeholder=(
+                    "Paste the full MLS text dump or Zillow URL for Property B\n"
+                    "(address, price, unit mix, beds, baths, sq ft, description, features…)"
+                ),
+            )
+            mls_text = ""  # not used in portfolio mode
+        else:
+            mls_text = st.text_area(
+                "🔗 Paste Zillow Property URL or MLS Text Dump",
+                height=200,
+                placeholder=(
+                    "Option A — paste a full Zillow listing URL:\n"
+                    "https://www.zillow.com/homes/1133-ironwood-circle-fairfield-ca_rb/\n\n"
+                    "Option B — paste the raw MLS text dump:\n"
+                    "Include address, price, beds, baths, sq ft, year built, description, features, upgrades…"
+                ),
+            )
+            mls_text_a = mls_text_b = ""
         studeo_url = st.text_input(
             "🔗 Studeo.ai Interactive Booklet URL",
             placeholder="https://studeo.ai/listing/...",
@@ -2172,17 +2778,29 @@ def page_compile() -> None:
     st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
     _, btn_col, _ = st.columns([1, 2, 1])
     with btn_col:
+        if is_portfolio:
+            _compile_ready = bool(prefix and mls_text_a.strip() and mls_text_b.strip())
+            _btn_label = "✨  Compile Portfolio Listing"
+        else:
+            _compile_ready = bool(prefix and mls_text.strip())
+            _btn_label = "✨  Compile Listing"
         compile_clicked = st.button(
-            "✨  Compile Listing",
+            _btn_label,
             type="primary",
             use_container_width=True,
-            disabled=not (prefix and mls_text.strip()),
+            disabled=not _compile_ready,
         )
 
     if compile_clicked:
         try:
-            with st.spinner("GPT-4o parsing listing and generating content…"):
-                result = _compile_listing_ai(prefix, mls_text, studeo_url)
+            if is_portfolio:
+                with st.spinner("GPT-4o parsing portfolio listing and generating split content…"):
+                    result = _compile_listing_ai_portfolio(prefix, mls_text_a, mls_text_b)
+                st.session_state["ed_is_portfolio"] = True
+            else:
+                with st.spinner("GPT-4o parsing listing and generating content…"):
+                    result = _compile_listing_ai(prefix, mls_text, studeo_url)
+                st.session_state["ed_is_portfolio"] = False
             _populate_editor_state(prefix, result, studeo_url=studeo_url)
             st.session_state["_loaded_prop_id"] = None
             try:
@@ -2199,15 +2817,29 @@ def page_compile() -> None:
     if not st.session_state.get("ed_active"):
         return
 
-    _render_staging_editor(prefix or st.session_state.get("ed_prefix", ""), studeo_url, mode)
+    _render_staging_editor(
+        prefix or st.session_state.get("ed_prefix", ""),
+        studeo_url,
+        mode,
+        is_portfolio=st.session_state.get("ed_is_portfolio", False),
+    )
 
 
-def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
+def _render_staging_editor(
+    prefix: str, studeo_url: str, mode: str, is_portfolio: bool = False
+) -> None:
     """Interactive staging editor — all fields editable, HTML generated on demand."""
     st.markdown("<div style='margin:1.25rem 0 .4rem'></div>", unsafe_allow_html=True)
+
+    _editor_badge = (
+        "📝 Staging Editor &nbsp;<span style='background:#0d0d0d;color:#fff;"
+        "font-size:.65rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase;"
+        "padding:.2rem .55rem;border-radius:3px;vertical-align:middle'>Portfolio</span>"
+        if is_portfolio else "📝 Staging Editor"
+    )
     st.markdown(
-        "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
-        "text-transform:uppercase;letter-spacing:.06em'>📝 Staging Editor</div>",
+        f"<div style='font-size:.78rem;font-weight:700;color:#aaa;"
+        f"text-transform:uppercase;letter-spacing:.06em'>{_editor_badge}</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -2216,60 +2848,118 @@ def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Editable stat inputs ─────────────────────────────────────────────────
-    sc = st.columns(7)
-    for col, lbl, k in zip(
-        sc,
-        ["Price", "MLS #", "Beds", "Baths", "Sq Ft", "Year", "Lot Size"],
-        ["ed_price", "ed_mls", "ed_beds", "ed_baths", "ed_sqft", "ed_year", "ed_lot_size"],
-    ):
-        with col:
-            st.text_input(lbl, key=k)
+    # ── Combined / shared stat inputs ────────────────────────────────────────
+    if is_portfolio:
+        # Portfolio mode: show address, city, combined price, combined units
+        pc = st.columns(4)
+        with pc[0]: st.text_input("Combined Address",    key="ed_address")
+        with pc[1]: st.text_input("City / ST",           key="ed_city_name")
+        with pc[2]: st.text_input("Combined Price",      key="ed_price")
+        with pc[3]: st.text_input("Combined Units",      key="ed_units",
+                                  placeholder="e.g. 9 Units")
+    else:
+        sc = st.columns(7)
+        for col, lbl, k in zip(
+            sc,
+            ["Price", "MLS #", "Beds", "Baths", "Sq Ft", "Year", "Lot Size"],
+            ["ed_price", "ed_mls", "ed_beds", "ed_baths", "ed_sqft", "ed_year", "ed_lot_size"],
+        ):
+            with col:
+                st.text_input(lbl, key=k)
 
-    ac = st.columns(7)
-    with ac[0]: st.text_input("Address",   key="ed_address")
-    with ac[1]: st.text_input("City / ST", key="ed_city_name")
+        ac = st.columns(7)
+        with ac[0]: st.text_input("Address",   key="ed_address")
+        with ac[1]: st.text_input("City / ST", key="ed_city_name")
 
     st.markdown("<div style='margin:.6rem 0'></div>", unsafe_allow_html=True)
 
-    # ── Media type selector ──────────────────────────────────────────────────
-    st.markdown(
-        "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
-        "text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem'>"
-        "Media Type</div>",
-        unsafe_allow_html=True,
-    )
-    mc1, mc2 = st.columns([2, 3])
-    with mc1:
-        st.radio(
-            "Media Type",
-            options=["🖼️ Image", "🎥 Vimeo Video", "📺 YouTube Video"],
-            key="ed_media_type",
-            horizontal=True,
-            label_visibility="collapsed",
+    if not is_portfolio:
+        # ── Media type selector (single-property only) ───────────────────────
+        st.markdown(
+            "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
+            "text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem'>"
+            "Media Type</div>",
+            unsafe_allow_html=True,
         )
-    with mc2:
-        ed_mt = st.session_state.get("ed_media_type", "🖼️ Image")
-        if ed_mt in ("🎥 Vimeo Video", "📺 YouTube Video"):
-            st.text_input(
-                "Video URL",
-                key="ed_video_url",
-                placeholder="Paste full Vimeo or YouTube URL here",
+        mc1, mc2 = st.columns([2, 3])
+        with mc1:
+            st.radio(
+                "Media Type",
+                options=["🖼️ Image", "🎥 Vimeo Video", "📺 YouTube Video"],
+                key="ed_media_type",
+                horizontal=True,
                 label_visibility="collapsed",
             )
+        with mc2:
+            ed_mt = st.session_state.get("ed_media_type", "🖼️ Image")
+            if ed_mt in ("🎥 Vimeo Video", "📺 YouTube Video"):
+                st.text_input(
+                    "Video URL",
+                    key="ed_video_url",
+                    placeholder="Paste full Vimeo or YouTube URL here",
+                    label_visibility="collapsed",
+                )
 
-    st.markdown("<div style='margin:.25rem 0'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin:.25rem 0'></div>", unsafe_allow_html=True)
 
-    # ── Editable content tabs ────────────────────────────────────────────────
-    t1, t2, t3, t4 = st.tabs(["📝 Description", "🏘 Neighborhood", "📍 Location", "🏙 City"])
-    with t1:
-        st.text_area("Description",  key="ed_description",  height=200, label_visibility="collapsed")
-    with t2:
-        st.text_area("Neighborhood", key="ed_neighborhood", height=200, label_visibility="collapsed")
-    with t3:
-        st.text_area("Location",     key="ed_location",     height=200, label_visibility="collapsed")
-    with t4:
-        st.text_area("City Profile", key="ed_city_tab",     height=200, label_visibility="collapsed")
+        # ── Single-property content tabs ─────────────────────────────────────
+        t1, t2, t3, t4 = st.tabs(["📝 Description", "🏘 Neighborhood", "📍 Location", "🏙 City"])
+        with t1:
+            st.text_area("Description",  key="ed_description",  height=200, label_visibility="collapsed")
+        with t2:
+            st.text_area("Neighborhood", key="ed_neighborhood", height=200, label_visibility="collapsed")
+        with t3:
+            st.text_area("Location",     key="ed_location",     height=200, label_visibility="collapsed")
+        with t4:
+            st.text_area("City Profile", key="ed_city_tab",     height=200, label_visibility="collapsed")
+
+    else:
+        # ── Portfolio: sub-property editors side-by-side ─────────────────────
+        st.markdown(
+            "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
+            "text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem'>"
+            "Sub-Property Details</div>",
+            unsafe_allow_html=True,
+        )
+        pa_col, pb_col = st.columns(2, gap="medium")
+        with pa_col:
+            st.markdown(
+                "<div style='font-size:.8rem;font-weight:800;color:#990000;"
+                "margin-bottom:.35rem'>Property A</div>",
+                unsafe_allow_html=True,
+            )
+            st.text_input("Address A",    key="ed_prop_a_address")
+            st.text_input("Price A",      key="ed_prop_a_price")
+            st.text_input("Unit Mix / Specs A", key="ed_prop_a_specs",
+                          placeholder="e.g. 5 Units — 2BD/1BA × 3, 3BD/2BA × 2")
+            st.text_area("Description A", key="ed_prop_a_description", height=180,
+                         label_visibility="visible")
+            st.text_area("Bullets A (12 lines, one per line)",
+                         key="ed_prop_a_bullets", height=180, label_visibility="visible")
+        with pb_col:
+            st.markdown(
+                "<div style='font-size:.8rem;font-weight:800;color:#0d0d0d;"
+                "margin-bottom:.35rem'>Property B</div>",
+                unsafe_allow_html=True,
+            )
+            st.text_input("Address B",    key="ed_prop_b_address")
+            st.text_input("Price B",      key="ed_prop_b_price")
+            st.text_input("Unit Mix / Specs B", key="ed_prop_b_specs",
+                          placeholder="e.g. 4 Units — 2BD/1BA × 4")
+            st.text_area("Description B", key="ed_prop_b_description", height=180,
+                         label_visibility="visible")
+            st.text_area("Bullets B (12 lines, one per line)",
+                         key="ed_prop_b_bullets", height=180, label_visibility="visible")
+
+        # ── Shared regional tabs (portfolio) ─────────────────────────────────
+        st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
+        pt2, pt3, pt4 = st.tabs(["🏘 Neighborhood", "📍 Location", "🏙 City"])
+        with pt2:
+            st.text_area("Neighborhood", key="ed_neighborhood", height=200, label_visibility="collapsed")
+        with pt3:
+            st.text_area("Location",     key="ed_location",     height=200, label_visibility="collapsed")
+        with pt4:
+            st.text_area("City Profile", key="ed_city_tab",     height=200, label_visibility="collapsed")
 
     st.markdown("<div style='margin:.5rem 0'></div>", unsafe_allow_html=True)
 
@@ -2312,24 +3002,33 @@ def _render_staging_editor(prefix: str, studeo_url: str, mode: str) -> None:
 
     # ── HTML output section ──────────────────────────────────────────────────
     if mode == "For Sale":
+        _tmpl_label = (
+            "Portfolio — Responsive HTML Listing Template"
+            if is_portfolio
+            else "For Sale — Responsive HTML Listing Template"
+        )
         st.markdown(
-            "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
-            "text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem'>"
-            "For Sale — Responsive HTML Listing Template</div>",
+            f"<div style='font-size:.78rem;font-weight:700;color:#aaa;"
+            f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem'>"
+            f"{_tmpl_label}</div>",
             unsafe_allow_html=True,
         )
-        st.caption(
-            "Gallery & banner images use 7-day presigned R2 URLs. "
-            "Copy the HTML block below and paste into your website CMS."
-        )
+        st.caption("Images use permanent navimages.com URLs. Copy the HTML block below and paste into your website CMS.")
         gen_prefix = prefix or st.session_state.get("ed_prefix", "")
         gen_studeo = studeo_url or st.session_state.get("ed_studeo_url", "")
 
+        _gen_btn_label = (
+            "🔨  Generate Portfolio HTML" if is_portfolio else "🔨  Generate Listing HTML"
+        )
         _, gbtn_col, _ = st.columns([1, 2, 1])
         with gbtn_col:
-            if st.button("🔨  Generate Listing HTML", use_container_width=True, key="gen_html_btn"):
+            if st.button(_gen_btn_label, use_container_width=True, key="gen_html_btn"):
                 try:
-                    html_out = _for_sale_html(gen_prefix, _editor_to_result(), gen_studeo)
+                    _result_data = _editor_to_result()
+                    if is_portfolio:
+                        html_out = _portfolio_for_sale_html(gen_prefix, _result_data)
+                    else:
+                        html_out = _for_sale_html(gen_prefix, _result_data, gen_studeo)
                     st.session_state["ed_html_out"]    = html_out
                     st.session_state["ed_html_prefix"] = gen_prefix
                 except Exception as exc:
@@ -2455,7 +3154,9 @@ def main() -> None:
     st.set_page_config(page_title=APP_NAME, page_icon="🏠", layout="wide")
     _inject_css()
 
-    st.sidebar.image("ivan.png", use_container_width=True)
+    _ivan_sidebar_path = "ivan.png" if os.path.isfile("ivan.png") else _IVAN_IMG_PATH
+    if os.path.isfile(_ivan_sidebar_path):
+        st.sidebar.image(_ivan_sidebar_path, use_container_width=True)
 
     st.sidebar.markdown(
         f"<h2 style='color:{CRIMSON};margin-top:.15rem;text-align:center;"
@@ -2528,7 +3229,11 @@ if __name__ == "__main__":
             try:
                 _data       = load_property_json(_pid)
                 _studeo_url = _data.get("studeo_url", "")
-                _html       = _for_sale_html(_pid, _data, _studeo_url)
+                _html       = (
+                    _portfolio_for_sale_html(_pid, _data)
+                    if _data.get("is_portfolio")
+                    else _for_sale_html(_pid, _data, _studeo_url)
+                )
                 _r2_key     = f"properties/{_pid}/listing.html"
                 upload_object(_r2_key, _html.encode("utf-8"), "text/html; charset=utf-8")
                 print(f"  ✓  {_pid:<40}  →  {_r2_key}  ({len(_html):,} chars)")

@@ -1,0 +1,43 @@
+Act as a Senior Python Engineer working on the NAV-Property-Compiler codebase in `src/nav_property_compiler/main.py`.
+
+We need to implement a new "Portfolio / Multi-Parcel Mode" for generating featured property landing pages when two properties are being sold as one combined portfolio (e.g., adjacent residential and commercial units).
+
+CRITICAL REQUIREMENT:
+Do NOT break or alter any existing functionality for single-property listings. All existing single-property pipelines, Studeo booklet modules, and R2 JSON saving logic must remain 100% operational when Portfolio Mode is turned off.
+
+HERE ARE THE EXPLICIT CHANGES TO IMPLEMENT IN `main.py`:
+
+1. UI TOGGLE IN `page_compile()`:
+   - Add a checkbox toggle: `is_portfolio = st.checkbox("🏢 Portfolio / Multi-Parcel Mode", value=False)`.
+   - When toggled ON, adapt the input controls to support a combined listing payload:
+     - Provide dual input text areas or a clear structured text field for two sub-properties (Property A and Property B).
+     - Store a flag `"is_portfolio": True` in the staging editor session state and in the saved R2 `data.json` payload.
+
+2. OPENAI PROMPT & AI PARSER UPDATES (`_compile_listing_ai` & prompt):
+   - When `is_portfolio` is active, adjust the GPT-4o system prompt to parse two sub-properties:
+     - Combined Headline (e.g. "8270 & 8276 Lancaster Dr")
+     - Combined Pricing (e.g. "$1,950,000") and combined unit/bed count ("9 Units").
+     - Sub-Property A: address, price, unit count/specs, brief description, and 12 dedicated bullet points.
+     - Sub-Property B: address, price, unit count/specs, brief description, and 12 dedicated bullet points.
+     - Shared regional text (Neighborhood, Location, City overview) representing the area as a whole.
+
+3. DEDICATED PORTFOLIO HTML RENDERER (`_portfolio_for_sale_html`):
+   - Create a dedicated HTML renderer for Portfolio Mode.
+   - Header & Hero: Standard 1920px wide hero banner image (`{prefix}-featured.webp`) with combined header stats ($1,950,000, 9 Units).
+   - Gallery: Consolidated lightbox gallery rendering all images from `properties/{prefix}/`.
+   - SPLIT-SCREEN COMPARISON SECTION (Replaces standard single description & suppresses the Studeo Booklet module entirely):
+     - Create a side-by-side two-column CSS grid layout (`grid-template-columns: 1fr 1fr` on desktop, stacking on mobile).
+     - Column A (Left - Property A):
+       - Header Sub-Image: Look in R2 folder for an image matching `{address_a_slug}-split-header.webp` (or containing `-split-header`). Fall back to gallery photo if missing.
+       - Title, Price, Unit mix specs, brief description, and 12 bullet points.
+     - Column B (Right - Property B):
+       - Header Sub-Image: Look in R2 folder for an image matching `{address_b_slug}-split-header.webp` (or containing `-split-header`). Fall back to gallery photo if missing.
+       - Title, Price, Unit mix specs, brief description, and 12 bullet points.
+   - Bottom Macro Tabs: Shared `Neighborhood`, `Location`, and `City` tabs below the split grid.
+   - Google Map: Map iframe pinned to the primary street address.
+
+4. STAGING EDITOR & R2 AUTO-SAVE:
+   - Ensure the Staging Editor in Streamlit supports editing both standard single-property fields and split-portfolio fields dynamically.
+   - When `Generate Listing HTML` is clicked in Portfolio Mode, output the rendered portfolio HTML block.
+
+Please review `main.py`, implement these edits cleanly, test syntax, and confirm when the updates are applied.
