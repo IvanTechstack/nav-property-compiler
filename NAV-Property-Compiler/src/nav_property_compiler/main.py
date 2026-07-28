@@ -19,6 +19,7 @@ from PIL import Image, ImageOps
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+_APP_VERSION = "1.1.0"  # split-header normalization + portfolio mode
 
 APP_NAME = "Featured Property Builder"
 BUCKET_NAME = "nav-property-media"
