@@ -2121,27 +2121,34 @@ def _portfolio_for_sale_html(prefix: str, data: dict, studeo_url: str = "") -> s
     banner_url = f"https://navimages.com/{MASTER_FEATURED_PREFIX}/{prefix}-featured.webp"
 
     # ── Split-header image resolution ─────────────────────────────────────
-    def _find_split_header(slug: str, fallback: str) -> str:
-        """Find {slug}-split-header.* in R2, fall back to gallery image if missing."""
-        slug_lower = slug.lower()
-        # Priority 1: matches slug AND -split-header
+    def _norm_key(s: str) -> str:
+        """Strip all non-alphanumeric chars and lowercase — enables forgiving match."""
+        return re.sub(r"[^a-z0-9]", "", s.lower())
+
+    def _street_num(addr: str) -> str:
+        """Return the leading street number from an address string, e.g. '8270'."""
+        m = re.search(r"\d+", addr)
+        return m.group(0) if m else ""
+
+    def _find_split_header(addr: str, fallback: str) -> str:
+        """Find a split-header image whose filename contains both the street number
+        of *addr* and the token 'splitheader' (after stripping all punctuation/spaces).
+        Never grabs a generic split-header that belongs to the other property.
+        Falls back to *fallback* (a gallery image) only when no specific match exists."""
+        num = _street_num(addr)
         for o in objs:
             key = o["Key"]
-            fname = key.split("/")[-1].lower()
-            if "-split-header" in fname and slug_lower in fname:
-                return f"https://navimages.com/{key}"
-        # Priority 2: any -split-header in folder
-        for o in objs:
-            key = o["Key"]
-            fname = key.split("/")[-1].lower()
-            if "-split-header" in fname and _is_image(key):
+            if not _is_image(key):
+                continue
+            fname_norm = _norm_key(key.split("/")[-1])
+            if num and num in fname_norm and "splitheader" in fname_norm:
                 return f"https://navimages.com/{key}"
         return fallback
 
     fallback_a = gallery_urls[0] if gallery_urls else banner_url
     fallback_b = gallery_urls[1] if len(gallery_urls) > 1 else fallback_a
-    split_header_a = _find_split_header(pa_slug, fallback_a)
-    split_header_b = _find_split_header(pb_slug, fallback_b)
+    split_header_a = _find_split_header(pa_address, fallback_a)
+    split_header_b = _find_split_header(pb_address, fallback_b)
 
     # ── Lightbox gallery ───────────────────────────────────────────────────
     if gallery_urls:
