@@ -294,7 +294,12 @@ def _populate_editor_state(property_id: str, data: dict, studeo_url: str = "") -
     st.session_state["ed_neighborhood"]  = data.get("neighborhood", "")
     st.session_state["ed_location"]      = data.get("location", "")
     st.session_state["ed_city_tab"]      = data.get("city_tab", "")
-    st.session_state["ed_bullets_24"]    = data.get("bullets_24", [])
+    _loaded_bullets = list(data.get("bullets_24", []))[:24]
+    st.session_state["ed_bullets_24"] = _loaded_bullets
+    for _i in range(24):
+        st.session_state[f"ed_bullet_{_i}"] = (
+            str(_loaded_bullets[_i]).strip() if _i < len(_loaded_bullets) else ""
+        )
     st.session_state["ed_flyer_bullets"] = "\n".join(
         f"• {b}" for b in data.get("flyer_bullets", [])
     )
@@ -418,7 +423,10 @@ def _editor_to_result() -> dict:
         "city_tab":         _auto_format_content(st.session_state.get("ed_city_tab", "")),
         "media_type": st.session_state.get("ed_media_type", "🖼️ Image"),
         "video_url":  st.session_state.get("ed_video_url", ""),
-        "bullets_24":       st.session_state.get("ed_bullets_24", []),
+        "bullets_24": [
+            st.session_state.get(f"ed_bullet_{i}", "").strip()
+            for i in range(24)
+        ],
         "flyer_bullets": [
             b.lstrip("•").strip()
             for b in st.session_state.get("ed_flyer_bullets", "").splitlines()
@@ -738,7 +746,9 @@ Studeo.ai Interactive Booklet URL: {studeo_url}
 
   "city_tab": "THE CITY STORY — two or more sections in high-end travel magazine style. Section 1: the city's culture, character, culinary scene, arts institutions, annual events, and what makes it distinct from neighboring municipalities. Section 2+: the economic and lifestyle case — major employers and economic drivers, median home value trajectory, school district ranking, top-rated neighborhoods, outdoor recreation, why premium buyers are actively choosing this city over alternatives. Cite real venues, real statistics, real events. Be bold and persuasive.",
 
-  "bullets_24": ["24 concise property feature bullets, 3-8 words each — plain text, no HTML — cover every major feature from the source, starting with the highest-impact items"],
+  "bullets_24": [
+    "EXACTLY 24 distinct, non-duplicative bullets in this strict order. Index 0: MLS# <MLS_NO>, or exactly MLS#: TBD when missing. Index 1: <COUNT> Bedrooms. Index 2: <COUNT> Bathrooms. Index 3: <FORMATTED_SQFT> sq ft Living Area. Index 4: lot size followed by Lot Size; use acres when the lot is at least 12,000 sq ft (~0.275 acres), otherwise use sq ft. Index 5: Built <YEAR>. Indices 6-23: exactly 18 unique physical property features extracted exclusively from the property description, 3-8 words each, plain text, no HTML. Never repeat MLS, bedroom, bathroom, living-area, lot-size, or year-built statistics in indices 6-23, and never repeat or paraphrase the same feature twice."
+  ],
   "flyer_bullets": ["6 compelling one-line bullets for a premium print flyer — plain text, no HTML — lead with the most emotionally resonant selling points"],
   "social_post": "Instagram/Facebook caption — conversational, magnetic, emoji-forward — describe the feeling of the home, call out 2-3 power features, close with a CTA and hashtag block — plain text with real newline characters for line breaks"
 }}
@@ -1038,6 +1048,76 @@ def _render_upload_sequence(prefix: str) -> None:
 # HTML template generators
 # ---------------------------------------------------------------------------
 
+def _clean_bullet_key(value: str) -> str:
+    """Normalize bullet text for stable, order-preserving deduplication."""
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
+def _format_lot_size(value: object) -> str:
+    """Format lots >= 12,000 sq ft as acres; preserve smaller lots as sq ft."""
+    raw = str(value or "").strip()
+    if not raw:
+        return "Lot Size: TBD"
+    lowered = raw.lower().replace(",", "")
+    number_match = re.search(r"\d+(?:\.\d+)?", lowered)
+    if not number_match:
+        return f"{raw} Lot Size"
+    number = float(number_match.group(0))
+    if "acre" in lowered:
+        acres = number
+        formatted = f"{acres:.2f}".rstrip("0").rstrip(".")
+        return f"{formatted} acres Lot Size"
+    if number >= 12000:
+        acres = number / 43560
+        formatted = f"{acres:.2f}".rstrip("0").rstrip(".")
+        return f"{formatted} acres Lot Size"
+    sqft_value = f"{number:,.0f}"
+    return f"{sqft_value} sq ft Lot Size"
+
+
+def _structured_bullets_24(stats: dict, supplied: object) -> list[str]:
+    """Build six ordered stats plus 18 unique feature bullets."""
+    mls = str(stats.get("mls", "") or "").strip()
+    if mls.lower().startswith("mls#"):
+        mls = mls[4:].strip(" :")
+    fixed = [
+        f"MLS# {mls}" if mls else "MLS#: TBD",
+        f"{stats.get('beds')} Bedrooms" if stats.get("beds") else "Bedrooms: TBD",
+        f"{stats.get('baths')} Bathrooms" if stats.get("baths") else "Bathrooms: TBD",
+        (
+            f"{stats.get('sqft')} sq ft Living Area"
+            if stats.get("sqft") else "Living Area: TBD"
+        ),
+        _format_lot_size(stats.get("lot_size", stats.get("lot", ""))),
+        f"Built {stats.get('year')}" if stats.get("year") else "Built: TBD",
+    ]
+    candidates = supplied if isinstance(supplied, list) else []
+    # New AI responses reserve indices 0-5 for stats. Legacy responses may
+    # contain only feature bullets, so discard leading entries only when they
+    # clearly look like the required structural stats.
+    if len(candidates) >= 24:
+        candidates = candidates[6:]
+    stat_terms = re.compile(
+        r"\b(mls|bed(?:room)?s?|bath(?:room)?s?|sq\s*ft|square\s*feet|"
+        r"living\s*area|lot\s*size|acres?|built|year\s*built)\b",
+        re.IGNORECASE,
+    )
+    seen = {_clean_bullet_key(item) for item in fixed}
+    features = []
+    for value in candidates:
+        bullet = str(value or "").lstrip("•-* ").strip()
+        key = _clean_bullet_key(bullet)
+        if not bullet or not key or key in seen or stat_terms.search(bullet):
+            continue
+        seen.add(key)
+        features.append(bullet)
+        if len(features) == 18:
+            break
+    while len(features) < 18:
+        features.append(f"Additional property feature TBD {len(features) + 1}")
+    return fixed + features
+
+
 def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     import urllib.parse as _up
 
@@ -1135,17 +1215,8 @@ def _for_sale_html(prefix: str, data: dict, studeo_url: str) -> str:
     else:
         gallery_section = ""
 
-    # ── Property Highlights: 6 fixed + 18 dynamic ─────────────────────────
-    fixed_6 = [
-        f"MLS# {mls_no}" if mls_no else "MLS# —",
-        f"{beds} Bedrooms" if beds else "Bedrooms: —",
-        f"{baths} Bathrooms" if baths else "Bathrooms: —",
-        f"{sqft} sq ft Living Area" if sqft else "Living Area: —",
-        f"{lot_size} Lot Size" if lot_size else "Lot Size: —",
-        f"Built {year}" if year else "Year Built: —",
-    ]
-    dynamic_18 = data.get("bullets_24", [])[:18]
-    all_bullets = fixed_6 + dynamic_18
+    # ── Property Highlights: exactly 24 ordered, unique bullets ────────────
+    all_bullets = _structured_bullets_24(stats, data.get("bullets_24", []))
     bullets_html = "".join(
         f"<div class='feat'><span class='dot'>&#9679;</span>{b}</div>"
         for b in all_bullets
@@ -2920,6 +2991,20 @@ def _render_staging_editor(
             st.text_area("Location",     key="ed_location",     height=200, label_visibility="collapsed")
         with t4:
             st.text_area("City Profile", key="ed_city_tab",     height=200, label_visibility="collapsed")
+
+        st.markdown(
+            "<div style='font-size:.78rem;font-weight:700;color:#aaa;"
+            "text-transform:uppercase;letter-spacing:.06em;margin:1rem 0 .5rem'>"
+            "Property Highlights — 24 editable bullets</div>",
+            unsafe_allow_html=True,
+        )
+        bullet_cols = st.columns(4)
+        for bullet_index in range(24):
+            with bullet_cols[bullet_index // 6]:
+                st.text_input(
+                    f"Bullet {bullet_index + 1}",
+                    key=f"ed_bullet_{bullet_index}",
+                )
 
     else:
         # ── Portfolio: sub-property editors side-by-side ─────────────────────

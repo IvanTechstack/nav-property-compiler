@@ -1,0 +1,25 @@
+Please refactor the bullet point processing and HTML output generator in `main.py` for the "Featured Property Builder" to enforce strict structural ordering and eliminate bullet duplicates.
+
+Here are the exact requirements:
+
+1. Update the AI Prompt (_AI_PROMPT schema and instructions):
+   - Force GPT-4o to extract and format 24 distinct, non-duplicative property feature bullets.
+   - The first 6 items must strictly follow this exact structural sequence:
+     * Index 0: MLS Number formatted as "MLS# <MLS_NO>". If missing/empty, strictly output "MLS#: TBD".
+     * Index 1: Bedrooms count formatted e.g., "2 Bedrooms".
+     * Index 2: Bathrooms count formatted e.g., "2.0 Bathrooms".
+     * Index 3: Interior Living Area formatted e.g., "1,203 sq ft Living Area".
+     * Index 4: Lot Size evaluation: Compare interior sqft vs lot size. If lot size is greater than or equal to 12,000 sq ft (or ~0.275 acres), display lot size formatted in acres (e.g. "0.33 acres Lot Size" or "2.5 acres Lot Size"). Otherwise display interior/lot sq ft.
+     * Index 5: Year Built formatted as "Built <YEAR>".
+   - Items 7 through 24 (Indices 6–23): Must be strictly unique physical features extracted exclusively from the property description (e.g., "Charming cottage-style townhouse", "Vaulted ceilings with skylights", "Attached two-car garage"). NO duplicate stats (do not repeat bed, bath, or sqft info here).
+
+2. Update `_for_sale_html()` in `main.py`:
+   - Replace the legacy bullet concatenation (`fixed_6 + dynamic_18`) with dynamic parsing logic that guarantees exactly 24 bullet points structured into a 4-column x 6-row grid (`repeat(4,1fr)` / `repeat(6,auto)`).
+   - Implement lot size fallback logic: check if lot square footage > 12,000 sq ft or contains acre units, and format accordingly.
+   - If MLS number is missing or empty in stats, default to "MLS#: TBD".
+   - Deduplicate bullets automatically while maintaining order so no feature repeats across the 24 slots.
+
+3. Update `_editor_to_result()` & Staging Editor:
+   - Ensure `bullets_24` retains all 24 formatted bullets so agents can edit individual bullet items in the staging editor before compiling HTML.
+
+Please apply these changes directly to main.py and test the build.
