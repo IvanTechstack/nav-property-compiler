@@ -724,6 +724,34 @@ Analyze every line of the source material, then return a single valid JSON objec
 Property ID / Name: {property_name}
 Studeo.ai Interactive Booklet URL: {studeo_url}
 
+=== FEATURE HARVESTING MANDATE ===
+Before writing the JSON, scan every byte of the source data and build a complete
+inventory of ALL physical, structural, appliance, utility, and property assets.
+Do not summarize several source details into one generic bullet when each can be
+named distinctly. Harvest details from every relevant category, including:
+
+- PARKING & GARAGE: garage capacity, garage door opener, paved parking layout,
+  side-by-side parking, driveway, RV/boat parking, carport, and storage.
+- ENERGY & SOLAR: solar panels, skylights, dual-pane windows, insulation,
+  whole-house fans, generators, HVAC, and energy-efficient systems.
+- OUTDOOR LIVING: enclosed patios, gated backyards, fencing materials, garden
+  views, front porches, decks, pools, spas, landscaping, and outdoor kitchens.
+- APPLIANCES & UTILITIES: included washer/dryer and refrigerator, range type,
+  pantry, countertops, dishwasher, laundry location, and utility systems.
+- INTERIOR ARCHITECTURE: ceiling design, main-level bedrooms and full baths,
+  ground-floor laundry, room layout, flooring, fireplaces, built-ins, lofts,
+  bonus rooms, and storage.
+
+CRITICAL FALLBACK RULE: The bullets array must contain at least 18 unique,
+non-duplicative highlights after the six required statistics. First exhaust all
+physical property details. If the source is too short to provide 18 physical
+features, fill the remaining positions with specific location, neighborhood,
+school, commuting, transit, shopping, dining, and lifestyle highlights gathered
+for this exact address (for example, the serving school district, a named nearby
+market, a specific highway commute, a named dining district, or public transit).
+Never use generic filler, invented property features, TBD, placeholders, or
+numbered fallback text. Never repeat or lightly paraphrase an existing bullet.
+
 === OUTPUT SCHEMA ===
 {{
   "stats": {{
@@ -747,7 +775,7 @@ Studeo.ai Interactive Booklet URL: {studeo_url}
   "city_tab": "THE CITY STORY — two or more sections in high-end travel magazine style. Section 1: the city's culture, character, culinary scene, arts institutions, annual events, and what makes it distinct from neighboring municipalities. Section 2+: the economic and lifestyle case — major employers and economic drivers, median home value trajectory, school district ranking, top-rated neighborhoods, outdoor recreation, why premium buyers are actively choosing this city over alternatives. Cite real venues, real statistics, real events. Be bold and persuasive.",
 
   "bullets_24": [
-    "EXACTLY 24 distinct, non-duplicative bullets in this strict order. Index 0: MLS# <MLS_NO>, or exactly MLS#: TBD when missing. Index 1: <COUNT> Bedrooms. Index 2: <COUNT> Bathrooms. Index 3: <FORMATTED_SQFT> sq ft Living Area. Index 4: lot size followed by Lot Size; use acres when the lot is at least 12,000 sq ft (~0.275 acres), otherwise use sq ft. Index 5: Built <YEAR>. Indices 6-23: exactly 18 unique physical property features extracted exclusively from the property description, 3-8 words each, plain text, no HTML. Never repeat MLS, bedroom, bathroom, living-area, lot-size, or year-built statistics in indices 6-23, and never repeat or paraphrase the same feature twice."
+    "EXACTLY 24 distinct, non-duplicative bullets in this strict order. Index 0: MLS# <MLS_NO>. Index 1: <COUNT> Bedrooms. Index 2: <COUNT> Bathrooms. Index 3: <FORMATTED_SQFT> sq ft Living Area. Index 4: lot size followed by Lot Size; use acres when the lot is at least 12,000 sq ft (~0.275 acres), otherwise use sq ft. Index 5: Built <YEAR>. Indices 6-23: exactly 18 unique highlights, 3-8 words each, plain text, no HTML. Use every available physical feature first; when fewer than 18 physical features exist, use specific verified location, neighborhood, school, commuting, transit, shopping, dining, and lifestyle highlights for the exact address. Never repeat MLS, bedroom, bathroom, living-area, lot-size, or year-built statistics in indices 6-23. Never output TBD, placeholders, generic filler, numbered fallback text, duplicates, or paraphrased duplicates."
   ],
   "flyer_bullets": ["6 compelling one-line bullets for a premium print flyer — plain text, no HTML — lead with the most emotionally resonant selling points"],
   "social_post": "Instagram/Facebook caption — conversational, magnetic, emoji-forward — describe the feeling of the home, call out 2-3 power features, close with a CTA and hashtag block — plain text with real newline characters for line breaks"
@@ -1057,7 +1085,7 @@ def _format_lot_size(value: object) -> str:
     """Format lots >= 12,000 sq ft as acres; preserve smaller lots as sq ft."""
     raw = str(value or "").strip()
     if not raw:
-        return "Lot Size: TBD"
+        raise ValueError("Lot size is required; placeholder values are not allowed")
     lowered = raw.lower().replace(",", "")
     number_match = re.search(r"\d+(?:\.\d+)?", lowered)
     if not number_match:
@@ -1077,19 +1105,24 @@ def _format_lot_size(value: object) -> str:
 
 def _structured_bullets_24(stats: dict, supplied: object) -> list[str]:
     """Build six ordered stats plus 18 unique feature bullets."""
+    required = ("mls", "beds", "baths", "sqft", "year")
+    missing = [name for name in required if not str(stats.get(name, "") or "").strip()]
+    if missing:
+        raise ValueError(
+            "Missing required property statistics: "
+            + ", ".join(missing)
+            + ". Placeholder values are not allowed."
+        )
     mls = str(stats.get("mls", "") or "").strip()
     if mls.lower().startswith("mls#"):
         mls = mls[4:].strip(" :")
     fixed = [
-        f"MLS# {mls}" if mls else "MLS#: TBD",
-        f"{stats.get('beds')} Bedrooms" if stats.get("beds") else "Bedrooms: TBD",
-        f"{stats.get('baths')} Bathrooms" if stats.get("baths") else "Bathrooms: TBD",
-        (
-            f"{stats.get('sqft')} sq ft Living Area"
-            if stats.get("sqft") else "Living Area: TBD"
-        ),
+        f"MLS# {mls}",
+        f"{stats.get('beds')} Bedrooms",
+        f"{stats.get('baths')} Bathrooms",
+        f"{stats.get('sqft')} sq ft Living Area",
         _format_lot_size(stats.get("lot_size", stats.get("lot", ""))),
-        f"Built {stats.get('year')}" if stats.get("year") else "Built: TBD",
+        f"Built {stats.get('year')}",
     ]
     candidates = supplied if isinstance(supplied, list) else []
     # New AI responses reserve indices 0-5 for stats. Legacy responses may
@@ -1098,8 +1131,17 @@ def _structured_bullets_24(stats: dict, supplied: object) -> list[str]:
     if len(candidates) >= 24:
         candidates = candidates[6:]
     stat_terms = re.compile(
-        r"\b(mls|bed(?:room)?s?|bath(?:room)?s?|sq\s*ft|square\s*feet|"
-        r"living\s*area|lot\s*size|acres?|built|year\s*built)\b",
+        r"^(?:"
+        r"mls\s*#?\s*:?\s*\S+|"
+        r"\d+(?:\.\d+)?\s+(?:bed(?:room)?s?|bath(?:room)?s?)|"
+        r"[\d,.]+\s+(?:sq\s*ft|square\s*feet)(?:\s+living\s+area)?|"
+        r"[\d,.]+\s+(?:sq\s*ft|square\s*feet|acres?)(?:\s+lot\s+size)?|"
+        r"(?:built|year\s+built)\s+\d{4}"
+        r")$",
+        re.IGNORECASE,
+    )
+    placeholder_terms = re.compile(
+        r"\b(?:tbd|placeholder|feature\s+pending|additional\s+property\s+feature)\b",
         re.IGNORECASE,
     )
     seen = {_clean_bullet_key(item) for item in fixed}
@@ -1107,14 +1149,23 @@ def _structured_bullets_24(stats: dict, supplied: object) -> list[str]:
     for value in candidates:
         bullet = str(value or "").lstrip("•-* ").strip()
         key = _clean_bullet_key(bullet)
-        if not bullet or not key or key in seen or stat_terms.search(bullet):
+        if (
+            not bullet
+            or not key
+            or key in seen
+            or stat_terms.search(bullet)
+            or placeholder_terms.search(bullet)
+        ):
             continue
         seen.add(key)
         features.append(bullet)
         if len(features) == 18:
             break
-    while len(features) < 18:
-        features.append(f"Additional property feature TBD {len(features) + 1}")
+    if len(features) < 18:
+        raise ValueError(
+            f"Only {len(features)} unique property/lifestyle highlights remain after "
+            "deduplication; 18 real highlights are required and placeholders are prohibited."
+        )
     return fixed + features
 
 

@@ -16,7 +16,11 @@ def stats():
 
 
 def test_required_stats_occupy_first_six_positions(stats):
-    bullets = main._structured_bullets_24(stats, ["Chef's kitchen"])
+    bullets = main._structured_bullets_24(
+        stats,
+        ["Chef's kitchen"]
+        + [f"Distinct property feature {index}" for index in range(17)],
+    )
 
     assert bullets[:6] == [
         "MLS# 123456",
@@ -28,12 +32,11 @@ def test_required_stats_occupy_first_six_positions(stats):
     ]
 
 
-def test_missing_mls_uses_tbd_fallback(stats):
+def test_missing_mls_is_rejected_instead_of_using_placeholder(stats):
     stats["mls"] = ""
 
-    bullets = main._structured_bullets_24(stats, [])
-
-    assert bullets[0] == "MLS#: TBD"
+    with pytest.raises(ValueError, match="mls"):
+        main._structured_bullets_24(stats, [])
 
 
 @pytest.mark.parametrize(
@@ -48,11 +51,13 @@ def test_lot_size_converts_to_acres_at_12000_sqft(lot_size, expected):
 
 
 def test_legacy_feature_only_payload_keeps_its_first_feature(stats):
-    legacy_payload = ["Chef's kitchen", "Heated saltwater pool"]
+    legacy_payload = ["Chef's kitchen", "Heated saltwater pool"] + [
+        f"Distinct physical feature {index}" for index in range(16)
+    ]
 
     bullets = main._structured_bullets_24(stats, legacy_payload)
 
-    assert bullets[6:8] == legacy_payload
+    assert bullets[6:] == legacy_payload
 
 
 def test_new_payload_discards_ai_supplied_stat_positions(stats):
@@ -78,7 +83,7 @@ def test_feature_deduplication_preserves_first_seen_order(stats):
         "Chefs Kitchen",
         "Private garden",
         "waterfront-views",
-    ]
+    ] + [f"Distinct lifestyle highlight {index}" for index in range(15)]
 
     bullets = main._structured_bullets_24(stats, supplied)
 
@@ -96,9 +101,25 @@ def test_rendered_property_highlights_have_exactly_24_slots(monkeypatch, stats):
         "test-property",
         {
             "stats": stats,
-            "bullets_24": ["Chef's kitchen", "Waterfront views"],
+            "bullets_24": [
+                f"Distinct property highlight {index}" for index in range(18)
+            ],
         },
         "",
     )
 
     assert html.count("<div class='feat'>") == 24
+
+
+def test_placeholders_are_stripped_and_never_rendered(stats):
+    supplied = [
+        "Additional property feature TBD 1",
+        "Feature TBD",
+        "Private fenced backyard",
+    ] + [f"Named neighborhood highlight {index}" for index in range(17)]
+
+    bullets = main._structured_bullets_24(stats, supplied)
+
+    assert len(bullets) == 24
+    assert not any("tbd" in bullet.lower() for bullet in bullets)
+    assert "Private fenced backyard" in bullets
